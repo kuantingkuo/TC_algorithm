@@ -1,0 +1,1 @@
+irt_objects_mask_all.ctl

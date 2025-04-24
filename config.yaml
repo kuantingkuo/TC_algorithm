@@ -1,0 +1,5 @@
+cases:
+  - QSPSRCE_r0
+  - QSPSRCE_r05_32x4km_300K
+  - QSPSRCE_r20_32x4km_300K
+output_path: /data/W.eddie/SPCAM/

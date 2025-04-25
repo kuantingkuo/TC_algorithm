@@ -1,11 +1,11 @@
 import os
 import xarray as xr
 import numpy as np
-from .utils import vintp, first_nonzero
-from windspharm.xarray import VectorWind
+from utils import vintp, first_nonzero
+from windspharm.standard import VectorWind
 
-def process_vorticity(u850, v850, pres, path, casename):
-    vortfile = path + casename + '.vort850.nc'
+def process_vorticity(h0, pres, path, casename):
+    vortfile = f'{path}/{casename}.vort850.nc'
     if os.path.isfile(vortfile):
         print('open vorticity file')
         vortnc = xr.open_dataset(vortfile, chunks={})
@@ -13,18 +13,46 @@ def process_vorticity(u850, v850, pres, path, casename):
         vortnc.close()
     else:
         print('calculate vorticity...')
-        k = first_nonzero(pres >= 85000., axis=1)
+        k = first_nonzero(pres>=85000., axis=1)
         k1 = k.min() - 1
+        if k1 < 0:
+            k1 = 0
         k2 = k.max() + 1
-        w = VectorWind(u850, v850)
-        vort = w.vorticity()
-        if vort.lat[0].values > vort.lat[1].values:
-            vort = vort[..., -1::-1, :]
+        if k2 > len(h0.lev) - 1:
+            k2 = len(h0.lev) - 1
+        reverse_lat = h0.lat[-1].values > h0.lat[0].values
+        vort = np.zeros(h0.U[:,k1:k2,:,:].shape)
+        for k in range(k1, k2):
+            utemp = h0.U[:,k,:,:].squeeze().transpose('lat','lon','time').values
+            vtemp = h0.V[:,k,:,:].squeeze().transpose('lat','lon','time').values
+            if reverse_lat:
+                utemp = utemp[-1::-1,:,:]
+                vtemp = vtemp[-1::-1,:,:]
+            w = VectorWind(utemp, vtemp)
+            vorttemp = w.vorticity().transpose((2,0,1))
+            if reverse_lat:
+                vorttemp = vorttemp[:,-1::-1,:]
+            vort[:,k-k1,:,:] = vorttemp
+        vort850 = vintp(vort, pres[:,k1:k2,:,:].values, np.array([85000.])).squeeze() 
+        vort = xr.DataArray(
+            data=vort850,
+            dims=['time', 'lat', 'lon'],
+            coords=dict(
+                time=h0.time,
+                lat=h0.lat,
+                lon=h0.lon
+            ),
+            name='vorticity',
+            attrs=dict(
+                units='s-1',
+                long_name='Vorticity at 850 hPa'
+            )
+        )
         vort.to_netcdf(vortfile)
     return vort
 
 def process_uv300(h0, pres, path, casename):
-    uv300file = path+casename+'.UV300.nc'
+    uv300file = f'{path}/{casename}.UV300.nc'
     if os.path.isfile(uv300file):
         print('open UV300 file')
         uv300 = xr.open_dataset(uv300file, chunks={})
@@ -52,7 +80,7 @@ def process_uv300(h0, pres, path, casename):
     return u300, v300
 
 def process_uv850(h0, pres, path, casename):
-    uv850file = path+casename+'.UV850.nc'
+    uv850file = f'{path}/{casename}.UV850.nc'
     if 'U850' in h0.data_vars:
         u850 = h0.U850
         v850 = h0.V850
@@ -86,12 +114,12 @@ def process_uv850(h0, pres, path, casename):
     return u850, v850
 
 def process_slp(h0, pres, path, casename):
-    slpfile = path+casename+'.slp.nc'
+    slpfile = f'{path}/{casename}.slp.nc'
     if 'PSL' in h0.data_vars:
         slp = h0.PSL
     elif os.path.isfile(slpfile):
         print('open SLP file')
-        slp = xr.open_dataset(slpfile, chunks={})
+        slp = xr.open_dataset(slpfile, chunks={}).PSL
     else:
         print('calculate SLP...')
         temp_ds = h0.isel(lev=-1).squeeze()
@@ -110,12 +138,12 @@ def process_slp(h0, pres, path, casename):
                 lat=h0.lat,
                 lon=h0.lon
             ),
+            name='PSL',
             attrs=dict(
                 units='Pa',
                 long_name='Sea-level Pressure'
             )
         )
-        slp = slp.rename('PSL')
         slp.to_netcdf(slpfile)
     return slp
     

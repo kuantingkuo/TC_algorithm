@@ -1,5 +1,5 @@
 cases:
-  - QSPSRCE_r0
-  - QSPSRCE_r05_32x4km_300K
-  - QSPSRCE_r20_32x4km_300K
-output_path: /data/W.eddie/SPCAM/
+  - Talim_8x4km_20170907_eddie
+case_path: /data/W.eddie/SPCAM/
+output_path: /data/W.eddie/test_track/
+file_pattern: cam.h0.*.nc

@@ -1,68 +1,108 @@
 import xarray as xr
 import numpy as np
-import numba
-import yaml
-from utils import (latpad, uvlatpad)
+from utils import (load_config, latpad, uvlatpad)
 from tc_detection import TC_detect
 from file_handling import process_vorticity, process_uv300, process_uv850, process_slp
+import os
 
-@numba.njit(parallel=True)
-def vintp(var, pres, plevs):
-    s = var.shape # time, lev, lat, lon
-    out = np.zeros((s[0],len(plevs),s[2],s[3]))
-    for t in numba.prange(s[0]):
-        for j in range(s[2]):
-            for i in range(s[3]):
-                out[t,:,j,i] = np.interp(plevs, pres[t,:,j,i], var[t,:,j,i])
-                out[t,:,j,i] = np.where(plevs > pres[t,-1,j,i], np.nan, out[t,:,j,i])
-    return out
+def irt_params(h0):
+    """
+    Extract parameters from the dataset and return them as a dictionary.
+    """
+    nx = len(h0.lon)
+    ny = len(h0.lat)
+    nt = len(h0.time)
+    lat_first = h0.lat[0].values
+    lat_inc = h0.lat[1].values - lat_first
+    lon_inc = h0.lon[1].values - h0.lon[0].values
+
+    return {
+        "domainsize_x": nx,
+        "domainsize_y": ny,
+        "time_steps": nt,
+        "lat_first": lat_first,
+        "lat_inc": lat_inc,
+        "lon_inc": lon_inc
+    }
+
+def update_irt_parameters(fortran_file, params):
+    """
+    Update the Fortran file with the new parameter values.
+
+    Parameters:
+        fortran_file (str): Path to the Fortran file.
+        params (dict): Dictionary containing parameter values.
+    """
+    with open(fortran_file, "r") as file:
+        lines = file.readlines()
+
+    # Replace parameter values in the Fortran file
+    updated_lines = []
+    for line in lines:
+        if "INTEGER, PARAMETER    :: domainsize_x" in line:
+            updated_lines.append(f"INTEGER, PARAMETER    :: domainsize_x = {params['domainsize_x']}\n")
+        elif "INTEGER, PARAMETER    :: domainsize_y" in line:
+            updated_lines.append(f"INTEGER, PARAMETER    :: domainsize_y = {params['domainsize_y']}\n")
+        elif "INTEGER, PARAMETER    :: time_steps" in line:
+            updated_lines.append(f"INTEGER, PARAMETER    :: time_steps = {params['time_steps']}\n")
+        elif "REAL, PARAMETER       :: lat_first" in line:
+            updated_lines.append(f"REAL, PARAMETER       :: lat_first = {params['lat_first']:.7f}\n")
+        elif "REAL, PARAMETER       :: lat_inc" in line:
+            updated_lines.append(f"REAL, PARAMETER       :: lat_inc = {params['lat_inc']:.9f}\n")
+        elif "REAL, PARAMETER       :: lon_inc" in line:
+            updated_lines.append(f"REAL, PARAMETER       :: lon_inc = {params['lon_inc']:.7f}\n")
+        else:
+            updated_lines.append(line)
+
+    # Write the updated lines back to the Fortran file
+    with open(fortran_file, "w") as file:
+        file.writelines(updated_lines)
 
 def pre(ds):
     return ds.sel(lev=slice(200,None))
 
-def main(case):
-    opath='/data/W.eddie/SPCAM/'
-    casename = case
-    path = opath+casename+'/atm/hist/'
-    outpath = path+casename+'.TC.nc'
-    print(outpath)
-    #if os.path.isfile(outpath):
+def main(casename, inpath, outpath, file_pattern):
+    path = f'{inpath}/{casename}/atm/hist/'
+    outfile = f'{outpath}/{casename}.TC.nc'
+    print(f'output filename: {outfile}')
+    #if os.path.isfile(outfile):
     #    continue
-    print("open files...")
-    with xr.open_mfdataset(path+casename+'.cam.h0.*.nc',
-            preprocess=pre, decode_cf=False) as h0:
-        pres = h0.hyam*h0.P0 + h0.hybm*h0.PS
+    print(f'open files: {path}/{casename}.{file_pattern}')
+    h0 = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False)
+    print('Update IRT parameters...')
+    params = irt_params(h0)
+    update_irt_parameters('irt_parameters.f90', params)
+    pres = h0.hyam * h0.P0 + h0.hybm * h0.PS
 
-    u300, v300 = process_uv300(h0, pres, path, casename)
-    u850, v850 = process_uv850(h0, pres, path, casename)
-    vort = process_vorticity(u850, v850, pres, path, casename)
-    slp = process_slp(h0, pres, path, casename)
+    u300, v300 = process_uv300(h0, pres, outpath, casename)
+    u850, v850 = process_uv850(h0, pres, outpath, casename)
+    vort = process_vorticity(h0, pres, outpath, casename)
+    slp = process_slp(h0, pres, outpath, casename)
 
     print("load data...")
-    if True: ############# switch of south hemisphere ##########
-        print('Defines negative vorticity in the Southern Hemisphere.')
+    if True:  # Toggle to adjust vorticity sign for the Southern Hemisphere
+        print('Adjusting vorticity sign for the Southern Hemisphere.')
         vort.load()
-        vort = xr.where(vort.lat < 0, -vort, vort).transpose('time',...)
+        vort = xr.where(vort.lat < 0, -vort, vort).transpose('time', ...)
         ps = h0.PS.load()
 
     print("Detecting TC-like objects...")
     ds = TC_detect(latpad(vort),
-            uvlatpad(u850), uvlatpad(u300), uvlatpad(v850), uvlatpad(v300),
-            latpad(slp), latpad(ps)
-        )
+                   uvlatpad(u850), uvlatpad(u300), uvlatpad(v850), uvlatpad(v300),
+                   latpad(slp), latpad(ps))
     print(ds)
     return ds
-
-def load_config(config_path="config.yaml"):
-    with open(config_path, 'r') as file:
-        return yaml.safe_load(file)
 
 if __name__ == "__main__":
     config = load_config()
     cases = config['cases']
+    case_path = config['case_path']
     output_path = config['output_path']
+    file_pattern = config['file_pattern']
+
     for case in cases:
-        ds = main(case)
+        os.makedirs(f"{output_path}/{case}", exist_ok=True)
+        ds = main(case, case_path, f'{output_path}/{case}', file_pattern)
         print("Output...")
-        ds.to_netcdf(f"{output_path}{case}/atm/hist/{case}.TC.nc")
+        ds.to_netcdf(f"{output_path}/{case}/{case}.TC.nc")
         ds.close()

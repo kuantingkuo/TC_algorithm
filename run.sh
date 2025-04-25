@@ -1,18 +1,19 @@
 #/bin/bash
 
-hostdir=`pwd`
+hostdir=`pwd`/tracking/
 
 # Read cases from config.yaml
-cases=$(awk '/cases:/ {flag=1; next} /^[[:space:]]*-/ && flag {print $2} /^[^[:space:]]/ && flag && !/cases:/ {flag=0}' ../config.yaml)
+cases=$(awk '/cases:/ {flag=1; next} /^[[:space:]]*-/ && flag {print $2} /^[^[:space:]]/ && flag && !/cases:/ {flag=0}' config.yaml)
+outpath=$(awk -F': ' '/output_path:/ {print $2}' config.yaml)
 
 for expn in $cases; do
-    expfolder="/data/W.eddie/SPCAM/${expn}"
-
+    expfolder="${outpath}${expn}"
     expname=$expn
-    TCdata=${expfolder}/atm/hist/${expname}.TC.nc
+    TCdata=${expfolder}/${expname}.TC.nc
     echo ${TCdata}
 
     # Prepare input/output folder
+    cd ${hostdir}
     if [ ! -d ./tracking_data ]; then mkdir ./tracking_data; fi
     rm -rf ./tracking_data/*
     ln -sf ${TCdata} ./tracking_data/TC.nc
@@ -24,13 +25,12 @@ for expn in $cases; do
     cd ${hostdir}
 
     # Copy the results
-    if [ ! -d OUTPUTtracking ]; then mkdir OUTPUTtracking; fi
-    outdir=./OUTPUTtracking/${expname}
-    if [ ! -d ${outdir} ]; then mkdir ${outdir}; fi
+    outdir=${outpath}${expname}
+    mkdir -p ${outdir}
     cd tracking_data
-    cp irt_objects_mask.dat irt_objects_output.txt ../${outdir}
-    cp irt_tracks_mask.dat irt_tracks_output.txt ../${outdir}
-    cp irt_tracklinks_output.txt ../${outdir}
+    cp irt_objects_mask.dat irt_objects_output.txt ${outdir}
+    cp irt_tracks_mask.dat irt_tracks_output.txt ${outdir}
+    cp irt_tracklinks_output.txt ${outdir}
     cd ${hostdir}
 
     # Create the ctl file

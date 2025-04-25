@@ -1,6 +1,7 @@
 import numpy as np
 import numba
 import xarray as xr
+import yaml
 
 @numba.njit
 def haversine(lato, lono, lat, lon):
@@ -27,7 +28,7 @@ def vintp(var, pres, plevs):
         for j in range(s[2]):
             for i in range(s[3]):
                 out[t, :, j, i] = np.interp(plevs, pres[t, :, j, i], var[t, :, j, i])
-                out[t, :, j, i] = np.where(plevs > pres[t, -1, j, i], np.nan, out[t, :, j, i])
+#                out[t, :, j, i] = np.where(plevs > pres[t, -1, j, i], np.nan, out[t, :, j, i])
     return out
 
 def pad_rolling_min2(arr):
@@ -81,3 +82,7 @@ def mag(a, b):
 def first_nonzero(arr, axis, invalid_val=-999):  # numpy form
     mask = arr != 0
     return np.where(mask.any(axis=axis), mask.argmax(axis=axis), invalid_val)
+
+def load_config(config_path="config.yaml"):
+    with open(config_path, 'r') as file:
+        return yaml.safe_load(file)

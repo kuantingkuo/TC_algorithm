@@ -1,7 +1,7 @@
 import numpy as np
 import numba
 import xarray as xr
-from .utils import pad_rolling_max, pad_rolling_min, pad_rolling_mean, pad_rolling_min2, mag, latpad, uvlatpad
+from utils import pad_rolling_max, pad_rolling_min, pad_rolling_mean, pad_rolling_min2, mag, latpad, uvlatpad
 
 @numba.njit(parallel=True)
 def TC_np(maxvort, maxV850, maxV300, slplow, ps, minps, minvort):

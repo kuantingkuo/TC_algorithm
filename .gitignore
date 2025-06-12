@@ -1,0 +1,9 @@
+__pycache__/
+tracking/tracking2/irt_advection_field_release.x
+tracking/tracking2/irt_objects_release.x
+tracking/tracking2/irt_parameters.mod
+tracking/tracking2/irt_tools.mod
+tracking/tracking2/irt_tracklinks_release.x
+tracking/tracking2/irt_trackmask_release.x
+tracking/tracking2/irt_tracks_release.x
+tracking/tracking_data/

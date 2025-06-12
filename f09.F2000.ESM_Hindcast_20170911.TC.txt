@@ -1,0 +1,2 @@
+Total TCs = 4
+Life-Time average = 86.25

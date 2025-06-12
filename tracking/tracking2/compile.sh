@@ -3,10 +3,7 @@ set -ex
 
 # netcdf configure flag
 # ifort -o ooo.x ooo.f $(nc-config --fflags --flibs)
-
-#COMPILE_COMMAND="ifort -no-wrap-margin -mcmodel=large -check bounds -debug all -traceback -g -shared-intel -free -heap-arrays 10 $(nc-config --fflags --flibs)"
-COMPILE_COMMAND="ifort -no-wrap-margin -mcmodel=large -check bounds -debug all -traceback -g -shared-intel -free -heap-arrays 10 -I/opt/libs-intel-oneapi/netcdf-4.7.4/include -I/opt/libs-intel-oneapi/netcdf-4.7.4/include -L/opt/libs-intel-oneapi/netcdf-4.7.4/lib -lnetcdff"
-#COMPILE_COMMAND="ifort -no-wrap-margin -mcmodel=large -check bounds -debug all -traceback -g -shared-intel -free -heap-arrays 10 -I/home/W.eddie/miniconda3/envs/forge/include -L/home/W.eddie/miniconda3/envs/forge/lib -lnetcdff"
+COMPILE_COMMAND="ifort -no-wrap-margin -mcmodel=large -check bounds -debug all -traceback -g -shared-intel -free -heap-arrays 10 -I/home/j07cyt00/codecs/spack-stack/envs/ufs-impi/install/intel/2021.10.0/netcdf-fortran-4.6.1-bwleycn/include -L/home/j07cyt00/codecs/spack-stack/envs/ufs-impi/install/intel/2021.10.0/netcdf-fortran-4.6.1-bwleycn/lib -lnetcdff"
 
 # clean:
 set +e

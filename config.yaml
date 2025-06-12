@@ -1,5 +1,5 @@
 cases:
-  - Talim_8x4km_20170907_eddie
-case_path: /data/W.eddie/SPCAM/
-output_path: /data/W.eddie/test_track/
-file_pattern: cam.h0.*.nc
+  - f09.F2000.ESM_Hindcast_20170911
+case_path: /work1/eddie7824/ESM
+output_path: /work1/eddie7824/ESM/TC_OUTPUT
+file_pattern: cam.h1.*.nc

@@ -23,12 +23,11 @@ def lifetime(sec, sst):
     for n in range(2, num):
         line = []
         line.extend(i for i in sec[n].split())
-        t = int(line[1]) - 1
+        t = int(line[1])
         x = np.round(float(line[14])).astype(int) - 1
         if x >= 288:
             x -= 288
         y = np.round(float(line[15])).astype(int) - 1
-        print(t, y, x)
         if (sst[t,y,x] >= 299.15).compute():
             return TCid, life
     return 0,0
@@ -70,7 +69,7 @@ def main(case, sstfils, path):
         data=TCnew,
         dims=['time', 'lat', 'lon'],
         coords=dict(
-            time=sstnc.time,
+            time=sstnc.time[:-1],
             lat=sstnc.lat,
             lon=sstnc.lon
         ),
@@ -94,4 +93,4 @@ if __name__ == "__main__":
     file_pattern = config['file_pattern']
     for case in cases:
         print(ctime(), case)
-        main(case, f'{case_path}/{case}/atm/hist/{case}.cam.h0.*.nc', f'{output_path}/{case}')
+        main(case, f'{case_path}/{case}/atm/hist/{case}.{file_pattern}', f'{output_path}/{case}')

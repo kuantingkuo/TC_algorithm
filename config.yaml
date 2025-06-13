@@ -1,5 +1,6 @@
 cases:
-  - f09.F2000.ESM_Hindcast_20170911
-case_path: /work1/eddie7824/ESM
-output_path: /work1/eddie7824/ESM/TC_OUTPUT
-file_pattern: cam.h1.*.nc
+  - shao_32x4km_rest90_f10
+case_path: /data/W.eddie/SPCAM/
+output_path: /data/W.eddie/track_output/
+file_pattern: cam.h0.*.nc
+invert_vorticity_SH: False

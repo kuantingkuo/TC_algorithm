@@ -33,15 +33,15 @@ for expn in $cases; do
     cp irt_tracklinks_output.txt ${outdir}
     cd ${hostdir}
 
-    # Create the ctl file
-    cd ${outdir}
-    cp ${hostdir}/DATA/irt_objects_mask.ctl ${hostdir}/DATA/irt_tracks_mask.ctl .
-    yr="2017"
-    mo="09"
-    dy="07"
-    ddMMyyyy=$(LC_TIME=en_US.utf8 date +%d%b%Y -d "${yr}-${mo}-${dy}")
-    sed -i "s/ddMMyyyy/${ddMMyyyy}/g" irt_objects_mask.ctl
-    sed -i "s/ddMMyyyy/${ddMMyyyy}/g" irt_tracks_mask.ctl
+#    # Create the ctl file
+#    cd ${outdir}
+#    cp ${hostdir}/DATA/irt_objects_mask.ctl ${hostdir}/DATA/irt_tracks_mask.ctl .
+#    yr="2017"
+#    mo="09"
+#    dy="07"
+#    ddMMyyyy=$(LC_TIME=en_US.utf8 date +%d%b%Y -d "${yr}-${mo}-${dy}")
+#    sed -i "s/ddMMyyyy/${ddMMyyyy}/g" irt_objects_mask.ctl
+#    sed -i "s/ddMMyyyy/${ddMMyyyy}/g" irt_tracks_mask.ctl
     cd ${hostdir}
 
 done

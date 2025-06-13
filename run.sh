@@ -12,9 +12,13 @@ fi
 
 python tc_algorithm.py
 
-module purge
-module use /home/j07cyt00/codecs/modulefiles
-module load rcec/stack-impi netcdf-fortran
+# Reminder: Set up your environment modules according to your system configuration.
+#module purge
+#module use /home/j07cyt00/codecs/modulefiles
+#module load rcec/stack-impi netcdf-fortran
+module load Intel-oneAPI-2022.1
+module load szip/2.1.1 hdf5/1.12.0 netcdf/4.7.4 mpi/2021.5.0 pnetcdf/1.12.2
+cd $workdir
 ./tracking.sh
 
 cd $workdir

@@ -35,7 +35,7 @@ OPEN(30,FILE=trim(output_filename),FORM='unformatted',ACTION='write',access='dir
 ! read the first line in sorted
 READ(20,*) readline(1:9)
 
-DO it=1, time_steps-1
+DO it=1, time_steps
 print*, 'timestep: ',it
 READ(10,rec=it) in_field(:,:)
 

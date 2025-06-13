@@ -3,6 +3,21 @@ import xarray as xr
 import numpy as np
 from utils import vintp, first_nonzero
 from windspharm.standard import VectorWind
+from concurrent.futures import ProcessPoolExecutor
+
+def _calc_vort_time(args):
+    t, U_slice, V_slice, reverse_lat = args
+    U_slice = U_slice.transpose(1, 2, 0)  # shape (lat, lon, lev)
+    V_slice = V_slice.transpose(1, 2, 0)  # shape (lat, lon, lev)
+    if reverse_lat:
+        U_slice = U_slice[-1::-1, :, :]
+        V_slice = V_slice[-1::-1, :, :]
+    w = VectorWind(U_slice, V_slice)
+    vort = w.vorticity()
+    vort = vort.transpose(2, 0, 1)  # shape (lev, lat, lon)
+    if reverse_lat:
+        vort = vort[:, -1::-1, :]
+    return t, vort
 
 def process_vorticity(h0, pres, path, casename):
     vortfile = f'{path}/{casename}.vort850.nc'
@@ -13,27 +28,30 @@ def process_vorticity(h0, pres, path, casename):
         vortnc.close()
     else:
         print('calculate vorticity...')
-        k = first_nonzero(pres>=85000., axis=1)
+        k = first_nonzero(pres >= 85000., axis=1)
         k1 = k.min() - 1
         if k1 < 0:
             k1 = 0
         k2 = k.max() + 1
         if k2 > len(h0.lev) - 1:
             k2 = len(h0.lev) - 1
+        U_slice = h0.U.isel(lev=slice(k1, k2)).load()
+        V_slice = h0.V.isel(lev=slice(k1, k2)).load()
         reverse_lat = h0.lat[-1].values > h0.lat[0].values
-        vort = np.zeros(h0.U[:,k1:k2,:,:].shape)
-        for k in range(k1, k2):
-            utemp = h0.U[:,k,:,:].squeeze().transpose('lat','lon','time').values
-            vtemp = h0.V[:,k,:,:].squeeze().transpose('lat','lon','time').values
-            if reverse_lat:
-                utemp = utemp[-1::-1,:,:]
-                vtemp = vtemp[-1::-1,:,:]
-            w = VectorWind(utemp, vtemp)
-            vorttemp = w.vorticity().transpose((2,0,1))
-            if reverse_lat:
-                vorttemp = vorttemp[:,-1::-1,:]
-            vort[:,k-k1,:,:] = vorttemp
-        vort850 = vintp(vort, pres[:,k1:k2,:,:].values, np.array([85000.])).squeeze() 
+        shape = h0.U[:, k1:k2, :, :].shape
+        vort = np.zeros(shape)
+        args_list = []
+        for t in range(shape[0]):
+            utemp = U_slice.isel(time=t).values
+            vtemp = V_slice.isel(time=t).values
+            args_list.append((t, utemp, vtemp, reverse_lat))
+        num_workers = int(os.cpu_count() / 4)
+        print(f'Using {num_workers} workers for vorticity calculation')
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            results = list(executor.map(_calc_vort_time, args_list))
+        for t, vorttemp in results:
+            vort[t, :, :, :] = vorttemp
+        vort850 = vintp(vort, pres[:, k1:k2, :, :].values, np.array([85000.])).squeeze()
         vort = xr.DataArray(
             data=vort850,
             dims=['time', 'lat', 'lon'],
@@ -123,8 +141,11 @@ def process_slp(h0, pres, path, casename):
     else:
         print('calculate SLP...')
         temp_ds = h0.isel(lev=-1).squeeze()
-        T_v = temp_ds.T.values * (1 + 0.608 * temp_ds.Q.values)
-        Z1 = temp_ds.Z3.values
+        T = temp_ds.T.compute()
+        Q = temp_ds.Q.compute()
+        Z3 = temp_ds.Z3.compute()
+        T_v = T.values * (1 + 0.608 * Q.values)
+        Z1 = Z3.values
         g = 9.80616
         Cp = 1004.64
         Rd = 287.04
@@ -146,4 +167,3 @@ def process_slp(h0, pres, path, casename):
         )
         slp.to_netcdf(slpfile)
     return slp
-    

@@ -64,29 +64,30 @@ The `run.sh` script consists of three main steps:
 
 ### Output
 
-The following files will be generated in the `output_path` directory:
+The following files are generated in the `output_path` directory:
 
-- irt_objects_mask.dat
-- irt_objects_output.txt
-- irt_tracklinks_output.txt
-- irt_tracks_mask.ctl
-- irt_tracks_mask.dat
-- irt_tracks_output.txt
-- CASE.slp.nc (based on input)
-- CASE.TC.nc
-- CASE.UV300.nc
-- CASE.UV850.nc (based on input)
-- CASE.vort850.nc
-- **TC.nc**
-- TC.txt
-where `CASE` corresponds to the case name specified in `config.yaml`.
+- `irt_objects_mask.dat`
+- `irt_objects_output.txt`
+- `irt_tracklinks_output.txt`
+- `irt_tracks_mask.ctl`
+- `irt_tracks_mask.dat`
+- `irt_tracks_output.txt`
+- `CASE.slp.nc` (if not present in input)
+- `CASE.TC.nc`
+- `CASE.UV300.nc`
+- `CASE.UV850.nc` (if not present in input)
+- `CASE.vort850.nc`
+- **`TC.nc`**
+- `TC.txt`
+
+Here, `CASE` refers to the case name specified in `config.yaml`.
 
 `TC.nc` is the main output file containing TC IDs that correspond to `irt_tracks_output.txt`. `CASE.TC.nc` is a temporary file, but it can be useful for debugging.
 
-### Reference
+## References
 
-Kuo, K., C. Wu, and W. Chen, 2023: Effects of the Horizontal Scales of the Cloud‐Resolving Model on Tropical Cyclones in the Superparameterized Community Atmosphere Model. Earth Sp. Sci., 10, https://doi.org/10.1029/2022EA002681.
+1. **Kuo, K.**, C. Wu, and W. Chen, 2023: Effects of the Horizontal Scales of the Cloud‐Resolving Model on Tropical Cyclones in the Superparameterized Community Atmosphere Model. *Earth Sp. Sci.*, 10, [https://doi.org/10.1029/2022EA002681](https://doi.org/10.1029/2022EA002681).
 
-Moseley, C., O. Henneberg, and J. O. Haerter, 2019: A Statistical Model for Isolated Convective Precipitation Events. J. Adv. Model. Earth Syst., 11, 360–375, https://doi.org/10.1029/2018MS001383.
+2. Moseley, C., O. Henneberg, and J. O. Haerter, 2019: A Statistical Model for Isolated Convective Precipitation Events. *J. Adv. Model. Earth Syst.*, 11, 360–375, [https://doi.org/10.1029/2018MS001383](https://doi.org/10.1029/2018MS001383).
 
-Oouchi, K., J. YOSHIMURA, H. YOSHIMURA, R. MIZUTA, S. KUSUNOKI, and A. NODA, 2006: Tropical Cyclone Climatology in a Global-Warming Climate as Simulated in a 20 km-Mesh Global Atmospheric Model: Frequency and Wind Intensity Analyses. J. Meteorol. Soc. Japan. Ser. II, 84, 259–276, https://doi.org/10.2151/jmsj.84.259.
+3. Oouchi, K., J. Yoshimura, H. Yoshimura, R. Mizuta, S. Kusunoki, and A. Noda, 2006: Tropical Cyclone Climatology in a Global-Warming Climate as Simulated in a 20 km-Mesh Global Atmospheric Model: Frequency and Wind Intensity Analyses. *J. Meteorol. Soc. Japan. Ser. II*, 84, 259–276, [https://doi.org/10.2151/jmsj.84.259](https://doi.org/10.2151/jmsj.84.259).

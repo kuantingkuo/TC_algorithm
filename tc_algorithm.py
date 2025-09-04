@@ -1,5 +1,6 @@
 import xarray as xr
 import numpy as np
+import dask
 from utils import (load_config, latpad, uvlatpad)
 from tc_detection import TC_detect
 from file_handling import process_vorticity, process_uv300, process_uv850, process_slp
@@ -100,11 +101,9 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH):
     print('Update IRT parameters...')
     params = irt_params(h0)
     update_irt_parameters('tracking/tracking2/irt_parameters.f90', params)
-    pres = h0.hyam * h0.P0 + h0.hybm * h0.PS
-    print('Preparing data...') 
-    pres = pres.persist()
-    h0['U'] = h0.U.persist()
-    h0['V'] = h0.V.persist()
+    pres = (h0.hyam * h0.P0 + h0.hybm * h0.PS).transpose('time', 'lev', 'lat', 'lon')
+    print('Preparing data...')
+    pres, h0['U'], h0['V'] = dask.persist(pres, h0.U, h0.V)
     u300, v300 = process_uv300(h0, pres, outpath, casename)
     u850, v850 = process_uv850(h0, pres, outpath, casename)
     vort = process_vorticity(h0, pres, outpath, casename)

@@ -3,8 +3,8 @@
 workdir=${PWD}
 
 module purge
-current_env=$(conda info --json | python -c "import sys, json; print(json.load(sys.stdin)['active_prefix_name'])")
-if [ "$current_env" != "forge" ]; then
+current_env=$(conda info --json 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('active_prefix_name', ''))" || echo "")
+if [ -z "$current_env" ] || [ "$current_env" != "forge" ]; then
     __conda_setup="$('conda' 'shell.bash' 'hook' 2> /dev/null)"
     eval "$__conda_setup"
     conda activate forge
@@ -23,8 +23,8 @@ cd $workdir
 
 cd $workdir
 module purge
-current_env=$(conda info --json | python -c "import sys, json; print(json.load(sys.stdin)['active_prefix_name'])")
-if [ "$current_env" != "forge" ]; then
+current_env=$(conda info --json 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('active_prefix_name', ''))" || echo "")
+if [ -z "$current_env" ] || [ "$current_env" != "forge" ]; then
     __conda_setup="$('conda' 'shell.bash' 'hook' 2> /dev/null)"
     eval "$__conda_setup"
     conda activate forge

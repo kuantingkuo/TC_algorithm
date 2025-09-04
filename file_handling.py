@@ -1,6 +1,7 @@
 import os
-import xarray as xr
 import numpy as np
+import dask
+import xarray as xr
 from utils import vintp, first_nonzero
 from windspharm.standard import VectorWind
 from concurrent.futures import ProcessPoolExecutor
@@ -141,9 +142,7 @@ def process_slp(h0, pres, path, casename):
     else:
         print('calculate SLP...')
         temp_ds = h0.isel(lev=-1).squeeze()
-        T = temp_ds.T.compute()
-        Q = temp_ds.Q.compute()
-        Z3 = temp_ds.Z3.compute()
+        T, Q, Z3 = dask.compute(temp_ds.T, temp_ds.Q, temp_ds.Z3)
         T_v = T.values * (1 + 0.608 * Q.values)
         Z1 = Z3.values
         g = 9.80616

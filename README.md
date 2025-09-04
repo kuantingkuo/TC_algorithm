@@ -50,7 +50,7 @@ Before beginning, ensure that your environment and required modules are set up c
 
 Note on environment setup: `run.sh` uses Conda (for example, `conda activate <env>`) and HPC environment modules (for example, `module load ...`) to configure the software environment. Please edit those lines to match your system (environment name, module names/versions), or replace them with your preferred activation commands. If your system does not use Environment Modules, you can remove the `module` lines and ensure required packages are available in your active Python environment.
 
- `tracking/tracking2/compile.sh` assumes Intel ifort and a specific NetCDF installation (include/lib paths embedded in `COMPILE_COMMAND`). Edit `COMPILE_COMMAND` to match your compiler (e.g., ifort, gfortran) and your NetCDF Fortran include and library paths on your system.
+`tracking/tracking2/compile.sh` assumes Intel ifort and a specific NetCDF installation (include/lib paths embedded in `COMPILE_COMMAND`). Edit `COMPILE_COMMAND` to match your compiler (e.g., ifort, gfortran) and your NetCDF Fortran include and library paths on your system.
   
 ### Run through the tracking algorithm
 

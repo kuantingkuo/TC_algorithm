@@ -25,14 +25,7 @@ Fortran compiler (for the tracking code) with NetCDF library support
 
 The input NetCDF files are primarily designed for CESM output and should include the following variables: **`U`**, **`V`**, **`PS`**, **`SST`**, `U850`, `V850`, `PSL`, `T`, `Q`, and `Z3`.
 
-### Main Workflow
-
-Before beginning, ensure that your environment and required modules are set up correctly. Pay particular attention to these two files:
-
-- `run.sh`
-- `tracking/tracking2/compile.sh`
-  
-#### Confuguration
+### Configuration
 
 Edit `config.yaml` to specify your cases, input/output paths, file patterns, and options such as vorticity sign inversion for the Southern Hemisphere.
 Currently, the `cases` field supports only a single case at a time.
@@ -48,7 +41,18 @@ file_pattern: cam.h0.*.nc
 invert_vorticity_SH: true
 ```
 
-#### Run through the tracking algorithm
+### Workflow Overview
+
+Before beginning, ensure that your environment and required modules are set up correctly. Pay particular attention to these two files:
+
+- `run.sh`
+- `tracking/tracking2/compile.sh`
+
+Note on environment setup: `run.sh` uses Conda (for example, `conda activate <env>`) and HPC environment modules (for example, `module load ...`) to configure the software environment. Please edit those lines to match your system (environment name, module names/versions), or replace them with your preferred activation commands. If your system does not use Environment Modules, you can remove the `module` lines and ensure required packages are available in your active Python environment.
+
+ `tracking/tracking2/compile.sh` assumes Intel ifort and a specific NetCDF installation (include/lib paths embedded in `COMPILE_COMMAND`). Edit `COMPILE_COMMAND` to match your compiler (e.g., ifort, gfortran) and your NetCDF Fortran include and library paths on your system.
+  
+### Run through the tracking algorithm
 
 To execute the tracking algorithm, run the `run.sh` script.
 

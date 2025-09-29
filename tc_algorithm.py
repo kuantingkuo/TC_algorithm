@@ -1,7 +1,7 @@
 import xarray as xr
 import numpy as np
 import dask
-from utils import (load_config, latpad, uvlatpad)
+from utils import (load_config, latpad, uvlatpad, StepTimer)
 from tc_detection import TC_detect
 from file_handling import process_vorticity, process_uv300, process_uv850, process_slp
 import os
@@ -83,7 +83,11 @@ def rechunk_h0(h0):
     # Split time first
     if lev_size <= max_timelev:
         lev_chunk = lev_size
-        time_chunk = min(time_size, time_size // (max_timelev // lev_chunk))
+        # Prevent division producing zero; ensure denominator >=1
+        denom = max(1, (max_timelev // max(1, lev_chunk)))
+        # available_time approximates how many time steps fit; fallback to 1
+        available_time = max(1, time_size // denom)
+        time_chunk = min(time_size, available_time)
     else:
         lev_chunk = max_timelev
         time_chunk = 1
@@ -92,33 +96,53 @@ def rechunk_h0(h0):
     return h0.chunk({'time': time_chunk, 'lev': lev_chunk, 'lat': lat_size, 'lon': lon_size})
 
 def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH):
+    timer = StepTimer()
     path = f'{inpath}/{casename}/atm/hist/'
     outfile = f'{outpath}/{casename}.TC.nc'
     print(f'output filename: {outfile}')
     print(f'open files: {path}/{casename}.{file_pattern}')
     h0 = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False)
+    timer.mark('open_mfdataset')
     h0 = rechunk_h0(h0)
+    timer.mark('rechunk')
     print('Update IRT parameters...')
     params = irt_params(h0)
+    timer.mark('extract_params')
     update_irt_parameters('tracking/tracking2/irt_parameters.f90', params)
+    timer.mark('update_fortran_params')
+
+    # Resolution validation (latitude increment) with configurable threshold via env or fallback
+    dlat = float(params['lat_inc'])
+    dlon = float(params['lon_inc'])
+    if dlat >= 3. or dlon >= 3.:
+        raise ValueError(
+            f"Resolution too coarse: lat_inc={dlat}°, lon_inc={dlon}° (threshold=3°)."
+        )
     pres = (h0.hyam * h0.P0 + h0.hybm * h0.PS).transpose('time', 'lev', 'lat', 'lon')
     print('Preparing data...')
     pres, h0['U'], h0['V'] = dask.persist(pres, h0.U, h0.V)
+    timer.mark('persist_pres_U_V')
     u300, v300 = process_uv300(h0, pres, outpath, casename)
+    timer.mark('uv300')
     u850, v850 = process_uv850(h0, pres, outpath, casename)
+    timer.mark('uv850')
     vort = process_vorticity(h0, pres, outpath, casename)
+    timer.mark('vorticity')
     slp = process_slp(h0, pres, outpath, casename)
+    timer.mark('slp')
 
     if invert_vorticity_SH:
         print('Inverting vorticity sign for the Southern Hemisphere.')
         vort = xr.where(vort.lat < 0, -vort, vort).transpose('time', ...)
 
     ps = h0.PS.compute()
+    timer.mark('ps_compute')
 
     print("Detecting TC-like objects...")
-    ds = TC_detect(latpad(vort),
-                   uvlatpad(u850), uvlatpad(u300), uvlatpad(v850), uvlatpad(v300),
-                   latpad(slp), latpad(ps))
+    ds = TC_detect(latpad(vort, dlat),
+                   uvlatpad(u850, dlat), uvlatpad(u300, dlat), uvlatpad(v850, dlat), uvlatpad(v300, dlat),
+                   latpad(slp, dlat), latpad(ps, dlat), dlat, dlon)
+    timer.mark('TC_detect')
     print(ds)
     return ds
 

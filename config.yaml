@@ -1,5 +1,5 @@
 cases:
-  - shao_32x4km_rest90_f10
+  - test
 case_path: /data/W.eddie/SPCAM/
 output_path: /data/W.eddie/track_output/
 file_pattern: cam.h0.*.nc

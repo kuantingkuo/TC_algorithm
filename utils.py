@@ -251,10 +251,6 @@ def uvlatpad(arr, dlat, pad_deg: float = 3.0):
     arrpad.data[:, -deg_rows:, :] = -Npad
     return arrpad
 
-def mag(a, b):
-    func = lambda x, y: np.sqrt(x ** 2 + y ** 2)
-    return xr.apply_ufunc(func, a, b)
-
 def first_nonzero(arr, axis, invalid_val=-999):  # numpy form
     mask = arr != 0
     return np.where(mask.any(axis=axis), mask.argmax(axis=axis), invalid_val)

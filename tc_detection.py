@@ -1,6 +1,7 @@
 import os
 import xarray as xr
-from utils import rolling_stat, mag, StepTimer
+import numpy as np
+from utils import rolling_stat, StepTimer
 
 def TC_detect(vort, u850, u300, v850, v300, slp, ps, dlat, dlon):
     fine = os.environ.get('PROFILE_FINE', '0') == '1'
@@ -9,11 +10,11 @@ def TC_detect(vort, u850, u300, v850, v300, slp, ps, dlat, dlon):
     # Rolling statistics using unified degree-aware function
     maxvort = rolling_stat(vort, dlat, dlon, win_lat_deg=3, win_lon_deg=3, stat='max').sel(lat=slice(-90, 90)); timer.mark('roll_max_vort')
 
-    speed850 = mag(u850, v850); timer.mark('compute_speed850')
+    speed850 = np.hypot(u850, v850); timer.mark('compute_speed850')
     maxV850 = rolling_stat(speed850, dlat, dlon, win_lat_deg=3, win_lon_deg=3, stat='max').sel(lat=slice(-90, 90)); timer.mark('roll_max_V850')
 
     # 300 hPa wind speed (no rolling)
-    maxV300 = mag(u300, v300).sel(lat=slice(-90, 90)); timer.mark('compute_speed300')
+    maxV300 = np.hypot(u300, v300).sel(lat=slice(-90, 90)); timer.mark('compute_speed300')
 
     # Surface pressure minima (~5° window)
     minps = rolling_stat(ps, dlat, dlon, win_lat_deg=5, win_lon_deg=5, stat='min').sel(lat=slice(-90, 90)); timer.mark('roll_min_ps')

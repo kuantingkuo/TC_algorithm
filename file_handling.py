@@ -41,7 +41,16 @@ def process_vorticity(h0, pres, path, casename):
             utemp = U_slice.isel(time=t).values
             vtemp = V_slice.isel(time=t).values
             args_list.append((t, utemp, vtemp, reverse_lat))
-        num_workers = np.minimum(shape[0], int(os.cpu_count() / 4))
+        # Allow external control of worker count via TC_CPUS env; fallback to cpu_count
+        try:
+            env_cpus = int(os.environ.get('TC_CPUS', '0'))
+        except ValueError:
+            env_cpus = 0
+        avail_cpus = int(os.cpu_count()) if os.cpu_count() else 1
+        target_cpus = env_cpus if env_cpus > 0 else avail_cpus
+        num_workers = int(np.minimum(shape[0], target_cpus))
+        if num_workers < 1:
+            num_workers = 1
         print(f'Using {num_workers} workers for vorticity calculation')
         timer.mark('prep_args')
         with ProcessPoolExecutor(max_workers=num_workers) as executor:

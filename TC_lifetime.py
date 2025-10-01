@@ -140,10 +140,11 @@ ENDVARS
 
 if __name__ == "__main__":
     config = load_config()
-    cases = config['cases']
+    case = config.get('case')
+    if case is None:
+        raise ValueError("Missing required 'case' key in config.yaml")
     case_path = config['case_path']
     output_path = config['output_path']
     file_pattern = config['file_pattern']
-    for case in cases:
-        print(ctime(), case)
-        main(case, f'{case_path}/{case}/atm/hist/{case}.{file_pattern}', f'{output_path}/{case}')
+    print(ctime(), case)
+    main(case, f'{case_path}/{case}/atm/hist/{case}.{file_pattern}', f'{output_path}/{case}')

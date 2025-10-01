@@ -1,16 +1,18 @@
-#/bin/bash
+#!/bin/bash
 
-hostdir=`pwd`/tracking/
+hostdir="$(pwd)/tracking/"
 
-# Read cases from config.yaml
-cases=$(awk '/cases:/ {flag=1; next} /^[[:space:]]*-/ && flag {print $2} /^[^[:space:]]/ && flag && !/cases:/ {flag=0}' config.yaml)
+# Require singular 'case' key in config.yaml
+case_val=$(awk -F': ' '/^case:/ {print $2}' config.yaml | head -n1)
+if [ -z "$case_val" ]; then
+    echo "[tracking.sh] ERROR: Missing required 'case:' key in config.yaml" >&2
+    exit 1
+fi
 outpath=$(awk -F': ' '/output_path:/ {print $2}' config.yaml)
-
-for expn in $cases; do
-    expfolder="${outpath}/${expn}"
-    expname=$expn
-    TCdata="${expfolder}/${expname}.TC.nc"
-    echo ${TCdata}
+expfolder="${outpath}/${case_val}"
+expname=$case_val
+TCdata="${expfolder}/${expname}.TC.nc"
+echo ${TCdata}
 
     # Prepare input/output folder
     cd ${hostdir}
@@ -44,4 +46,4 @@ for expn in $cases; do
 #    sed -i "s/ddMMyyyy/${ddMMyyyy}/g" irt_tracks_mask.ctl
     cd ${hostdir}
 
-done
+

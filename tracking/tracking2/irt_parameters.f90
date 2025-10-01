@@ -17,7 +17,7 @@ LOGICAL, PARAMETER    :: lpole = .TRUE.
 INTEGER, PARAMETER    :: n_fields = 0   ! number of additional averaging
 
 ! bins of coarse velocity field
-INTEGER, PARAMETER    :: time_steps = 1
+INTEGER, PARAMETER    :: time_steps = 101
 INTEGER, PARAMETER    :: nt_bins = 24         ! 24 hours
 INTEGER, PARAMETER    :: nx_bins = 1
 INTEGER, PARAMETER    :: ny_bins = 1

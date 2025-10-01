@@ -1,6 +1,21 @@
-cases:
-  - test
+case: test
 case_path: /data/W.eddie/SPCAM/
 output_path: /data/W.eddie/track_output/
 file_pattern: cam.h0.*.nc
 invert_vorticity_SH: False
+runtime:
+  conda_env: forge
+  cpus: 16
+  load_modules:
+    - Intel-oneAPI-2022.1
+    - szip/2.1.1
+    - hdf5/1.12.0
+    - netcdf/4.7.4
+    - mpi/2021.5.0
+    - pnetcdf/1.12.2
+  compiler: ifort
+  compiler_flags: >-
+    -no-wrap-margin -mcmodel=large -check bounds -debug all -traceback -g -shared-intel
+    -free -heap-arrays 10
+    -I/opt/libs-intel-oneapi/netcdf-4.7.4/include
+    -L/opt/libs-intel-oneapi/netcdf-4.7.4/lib -lnetcdff

@@ -64,6 +64,37 @@ def update_irt_parameters(fortran_file, params):
     with open(fortran_file, "w") as file:
         file.writelines(updated_lines)
 
+def update_compile_command(config, compile_script_path="tracking/tracking2/compile.sh"):
+    """Rewrite COMPILE_COMMAND line in compile.sh based on runtime.compiler and runtime.compiler_flags.
+
+    Falls back silently if script missing or keys absent.
+    """
+    runtime = config.get('runtime') or {}
+    compiler = runtime.get('compiler')
+    flags = runtime.get('compiler_flags')
+    if not compiler or not flags:
+        return
+    if not os.path.isfile(compile_script_path):
+        return
+    try:
+        with open(compile_script_path, 'r') as f:
+            lines = f.readlines()
+        new_lines = []
+        replaced = False
+        for line in lines:
+            if line.startswith('COMPILE_COMMAND=') or line.startswith('COMPILE_COMMAND="'):
+                new_lines.append(f'COMPILE_COMMAND="{compiler} {" ".join(str(flags).split())}"\n')
+                replaced = True
+            else:
+                new_lines.append(line)
+        if not replaced:
+            # Prepend if not found
+            new_lines.insert(0, f'COMPILE_COMMAND="{compiler} {" ".join(str(flags).split())}"\n')
+        with open(compile_script_path, 'w') as f:
+            f.writelines(new_lines)
+    except Exception:
+        pass
+
 def pre(ds):
     return ds.sel(lev=slice(200,None))
 
@@ -109,6 +140,13 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH):
     params = irt_params(h0)
     timer.mark('extract_params')
     update_irt_parameters('tracking/tracking2/irt_parameters.f90', params)
+    # Also refresh compile.sh with current compiler flags from config
+    try:
+        # We have no direct config in this scope; will load again here for clarity
+        cfg = load_config()
+        update_compile_command(cfg)
+    except Exception:
+        pass
     timer.mark('update_fortran_params')
 
     # Resolution validation (latitude increment) with configurable threshold via env or fallback
@@ -148,15 +186,16 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH):
 
 if __name__ == "__main__":
     config = load_config() # Default: config.yaml
-    cases = config['cases']
+    case = config.get('case')
+    if case is None:
+        raise ValueError("Missing required 'case' key in config.yaml")
     case_path = config['case_path']
     output_path = config['output_path']
     file_pattern = config['file_pattern']
     invert_vorticity_SH = config.get('invert_vorticity_SH', True)  # Default to True
 
-    for case in cases:
-        os.makedirs(f"{output_path}/{case}", exist_ok=True)
-        ds = main(case, case_path, f'{output_path}/{case}', file_pattern, invert_vorticity_SH)
-        print("Output...")
-        ds.to_netcdf(f"{output_path}/{case}/{case}.TC.nc")
-        ds.close()
+    os.makedirs(f"{output_path}/{case}", exist_ok=True)
+    ds = main(case, case_path, f'{output_path}/{case}', file_pattern, invert_vorticity_SH)
+    print("Output...")
+    ds.to_netcdf(f"{output_path}/{case}/{case}.TC.nc")
+    ds.close()

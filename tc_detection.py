@@ -24,11 +24,10 @@ def TC_detect(vort, u850, u300, v850, v300, slp, ps, dlat, dlon):
     slplow = slp.sel(lat=slice(-90, 90)) - slp_mean.sel(lat=slice(-90, 90)); timer.mark('compute_slplow')
 
     ps = ps.sel(lat=slice(-90, 90))
-    minvort = rolling_stat(vort, dlat, dlon, win_lat_deg=3, win_lon_deg=3, stat='min').sel(lat=slice(-90, 90)); timer.mark('roll_min_vort')
 
     # Align all feature fields to guard against subtle time/lat mismatches
-    maxvort, maxV850, maxV300, slplow, ps, minps, minvort = xr.align(
-        maxvort, maxV850, maxV300, slplow, ps, minps, minvort, join='inner'
+    ps, maxvort, maxV850, maxV300, slplow, minps = xr.align(
+        ps, maxvort, maxV850, maxV300, slplow, minps, join='override'
     )
 
     # Inline boolean mask (xarray-aware, dask friendly)
@@ -38,8 +37,7 @@ def TC_detect(vort, u850, u300, v850, v300, slp, ps, dlat, dlon):
         (maxV850 > maxV300) &
         (slplow < -200.0) &
         (ps < 100800.0) &
-        (minps > 88000.0) &
-        (minvort > 0.0)
+        (minps > 86000.0)
     ).astype('uint8').rename('TC'); timer.mark('TC_mask')
 
     ds = xr.Dataset(

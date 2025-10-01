@@ -13,7 +13,7 @@ def _calc_vort_time(args):
         U_slice = U_slice[::-1, :, :]
         V_slice = V_slice[::-1, :, :]
     w = VectorWind(U_slice, V_slice)
-    vort = w.vorticity()
+    vort = w.vorticity().astype(np.float32)
     vort = vort.transpose(2, 0, 1)  # shape (lev, lat, lon)
     if reverse_lat:
         vort = vort[:, ::-1, :]
@@ -170,7 +170,7 @@ def process_slp(h0, pres, path, casename):
         P1 = pres.isel(lev=-1)  # pressure at lowest model level (lazy)
         # Original formula preserved; stays in graph until compute
         slp = ((g * Z) / (Cp * T_v) + 1.0) ** (Cp / Rd) * P1; timer.mark('form_slp_expr')
-        slp = slp.rename('PSL').assign_attrs(units='Pa', long_name='Sea-level Pressure (diagnostic)')
+        slp = slp.astype(np.float32).rename('PSL').assign_attrs(units='Pa', long_name='Sea-level Pressure (diagnostic)')
         # Use to_netcdf to trigger a single fused compute
         slp.to_netcdf(slpfile); timer.mark('write_slp_file')
     return slp

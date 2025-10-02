@@ -6,7 +6,6 @@ invert_vorticity_SH: False
 runtime:
   conda_env: forge
   cpus: 32
-  parallel_time: true
   load_modules:
     - Intel-oneAPI-2022.1
     - szip/2.1.1

@@ -42,7 +42,7 @@ def TC_detect(vort, u850, u300, v850, v300, slp, ps, dlat, dlon):
 
     ds = xr.Dataset(
         data_vars=dict(
-            vort=maxvort,
+            maxvort=maxvort,
             V850=maxV850,
             V300=maxV300,
             TC=TC,

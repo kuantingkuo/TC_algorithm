@@ -68,7 +68,7 @@ The `run.sh` script consists of three main steps:
 
 ### Output
 
-The following files are generated in the `output_path` directory:
+The following files are generated in the `output_path` directory (within the case subfolder):
 
 - `irt_objects_mask.dat`
 - `irt_objects_output.txt`
@@ -76,17 +76,13 @@ The following files are generated in the `output_path` directory:
 - `irt_tracks_mask.ctl`
 - `irt_tracks_mask.dat`
 - `irt_tracks_output.txt`
-- `CASE.slp.nc` (if not present in input)
-- `CASE.TC.nc`
-- `CASE.UV300.nc`
-- `CASE.UV850.nc` (if not present in input)
-- `CASE.vort850.nc`
-- **`TC.nc`**
-- `TC.txt`
+- `CASE.TC.nc` (intermediate detection features & mask)
+- **`TC.nc`** (final lifetime-filtered storm IDs)
+- `TC.txt` (summary counts and mean lifetime)
 
 Here, `CASE` refers to the case name specified in `config.yaml`.
 
-`TC.nc` is the main output file containing TC IDs that correspond to `irt_tracks_output.txt`. `CASE.TC.nc` is a temporary file, but it can be useful for debugging.
+`TC.nc` is the main output file containing TC IDs that correspond to `irt_tracks_output.txt`. `CASE.TC.nc` is an intermediate file holding detection-time features and masks (useful for debugging).
 
 ## References
 

@@ -1,9 +1,7 @@
 import xarray as xr
 import numpy as np
-import dask
-from utils import (load_config, latpad, uvlatpad, StepTimer, vertical_slice_bounds, vintp)
+from utils import (load_config, StepTimer, vertical_slice_bounds, vintp, latpad, uvlatpad)
 from tc_detection import TC_detect
-from file_handling import process_vorticity, process_uv300, process_uv850, process_slp
 import os
 import math
 from concurrent.futures import ProcessPoolExecutor
@@ -101,39 +99,7 @@ def update_compile_command(config, compile_script_path="tracking/tracking2/compi
 def pre(ds):
     return ds.sel(lev=slice(200,None))
 
-def rechunk_h0(h0, max_time_workers=None):
-    # Get dimension sizes
-    time_size = len(h0['time'])
-    lev_size = len(h0['lev'])
-    lat_size = len(h0['lat'])
-    lon_size = len(h0['lon'])
-
-    # CPU override branch first: choose time chunks purely from worker count, keep full vertical extent.
-    if max_time_workers is not None and max_time_workers > 0:
-        time_chunk = int(math.ceil(time_size / max_time_workers))
-        if time_chunk < 1:
-            time_chunk = 1
-        lev_chunk = lev_size  # keep entire level dimension in each chunk
-        print(f"CPU override: time chunk={time_chunk}, lev={lev_chunk} using {max_time_workers} workers (time_size={time_size})")
-    else:
-        # Memory heuristic branch
-        max_elements = int(1e8 // 4)  # target elements (float32 bytes accounted)
-        latlon_size = lat_size * lon_size
-        max_timelev = max_elements // latlon_size
-        if max_timelev < 1:
-            max_timelev = 1
-
-        if lev_size <= max_timelev:
-            lev_chunk = lev_size
-            denom = max(1, (max_timelev // max(1, lev_chunk)))
-            available_time = max(1, time_size // denom)
-            time_chunk = min(time_size, available_time)
-        else:
-            lev_chunk = max_timelev
-            time_chunk = 1
-
-    print(f"Rechunking: time={time_chunk}, lev={lev_chunk}, lat={lat_size}, lon={lon_size}")
-    return h0.chunk({'time': time_chunk, 'lev': lev_chunk, 'lat': lat_size, 'lon': lon_size})
+## Sequential rechunking removed (always parallel path)
 
 # -------------------------------
 # Parallel per-time feature + detection helpers
@@ -155,6 +121,13 @@ def _compute_features_time_batch_from_dataset(ds_batch, invert_vorticity_SH):
     except Exception as e:
         print(f"[parallel-batch] debug print failed: {e}")
     out_list = []
+    # Determine latitude orientation once (True if need to reverse to descending before windspharm)
+    reverse_lat = False
+    try:
+        if ds_batch.sizes.get('lat', 0) > 1:
+            reverse_lat = bool(ds_batch.lat[-1].values > ds_batch.lat[0].values)
+    except Exception:
+        reverse_lat = False
     # Detect precomputed 850 hPa winds (expected dims: time, lat, lon)
     has_pre850 = ('U850' in ds_batch.data_vars) and ('V850' in ds_batch.data_vars)
     if has_pre850:
@@ -169,46 +142,49 @@ def _compute_features_time_batch_from_dataset(ds_batch, invert_vorticity_SH):
         dlon = float(abs(dsi.lon[1] - dsi.lon[0]))
         pres_t = (dsi.hyam * dsi.P0 + dsi.hybm * dsi.PS).transpose('time', 'lev', 'lat', 'lon')
         pres_np = pres_t.values
+        # Derive vertical slice bounds for 300 hPa (needed in both branches)
+        k1_300, k2_300 = vertical_slice_bounds(pres_np, 30000., lev_len=len(dsi.lev), axis=1)
+        U_300_slice = dsi.U.isel(lev=slice(k1_300, k2_300))
+        V_300_slice = dsi.V.isel(lev=slice(k1_300, k2_300))
+        U_300_np = U_300_slice.transpose('time','lev','lat','lon').values
+        V_300_np = V_300_slice.transpose('time','lev','lat','lon').values
+        u300 = vintp(U_300_np, pres_np[:, k1_300:k2_300, :, :], [30000.]); u300 = np.squeeze(u300, axis=1)
+        v300 = vintp(V_300_np, pres_np[:, k1_300:k2_300, :, :], [30000.]); v300 = np.squeeze(v300, axis=1)
         if has_pre850:
             # Use provided 850 hPa winds directly (no vertical interpolation)
             u850_level = pre_U850.isel(time=local_t).values  # (lat, lon)
             v850_level = pre_V850.isel(time=local_t).values
-            # Compute vorticity from supplied single-level winds
-            w = VectorWind(u850_level, v850_level)
-            vort850 = w.vorticity().astype(np.float32)[None, ...]  # (time, lat, lon)
             u850 = u850_level[None, ...]
             v850 = v850_level[None, ...]
-            # Still need upper-level (300 hPa) winds from full field
-            k1_300, k2_300 = vertical_slice_bounds(pres_np, 30000., lev_len=len(dsi.lev), axis=1)
-            U_300_slice = dsi.U.isel(lev=slice(k1_300, k2_300))
-            V_300_slice = dsi.V.isel(lev=slice(k1_300, k2_300))
-            U_300_np = U_300_slice.transpose('time','lev','lat','lon').values
-            V_300_np = V_300_slice.transpose('time','lev','lat','lon').values
-            u300 = vintp(U_300_np, pres_np[:, k1_300:k2_300, :, :], [30000.]); u300 = np.squeeze(u300, axis=1)
-            v300 = vintp(V_300_np, pres_np[:, k1_300:k2_300, :, :], [30000.]); v300 = np.squeeze(v300, axis=1)
+            if reverse_lat:
+                u850_level = u850_level[::-1, :]
+                v850_level = v850_level[::-1, :]
+            w = VectorWind(u850_level, v850_level)
+            vort850 = w.vorticity().astype(np.float32)[None, ...]
+            if reverse_lat:
+                vort850 = vort850[:, ::-1, :]
         else:
-            # Derive vertical slice bounds for 850 & 300
+            # Derive vertical slice bounds for 850 hPa only (300 already done)
             k1_850, k2_850 = vertical_slice_bounds(pres_np, 85000., lev_len=len(dsi.lev), axis=1)
-            k1_300, k2_300 = vertical_slice_bounds(pres_np, 30000., lev_len=len(dsi.lev), axis=1)
             U_850_slice = dsi.U.isel(lev=slice(k1_850, k2_850))
             V_850_slice = dsi.V.isel(lev=slice(k1_850, k2_850))
-            U_300_slice = dsi.U.isel(lev=slice(k1_300, k2_300))
-            V_300_slice = dsi.V.isel(lev=slice(k1_300, k2_300))
             # Retain original dtypes; only vort and slp will be explicitly cast to float32
             U_850_np = U_850_slice.transpose('time','lev','lat','lon').values
             V_850_np = V_850_slice.transpose('time','lev','lat','lon').values
-            U_300_np = U_300_slice.transpose('time','lev','lat','lon').values
-            V_300_np = V_300_slice.transpose('time','lev','lat','lon').values
+            # Prepare (lat, lon, lev) ordering for winds to feed windspharm (level axis last originally)
             U_for_vort = U_850_np[0].transpose(1,2,0)
             V_for_vort = V_850_np[0].transpose(1,2,0)
+            if reverse_lat:
+                U_for_vort = U_for_vort[::-1, :, :]
+                V_for_vort = V_for_vort[::-1, :, :]
             w = VectorWind(U_for_vort, V_for_vort)
-            vort = w.vorticity().astype(np.float32)
-            vort = vort.transpose(2,0,1)[np.newaxis, ...]
+            vort = w.vorticity().astype(np.float32)  # (lat, lon, lev)
+            if reverse_lat:
+                vort = vort[::-1, :, :]
+            vort = vort.transpose(2,0,1)[np.newaxis, ...]  # (time=1, lev, lat, lon)
             vort850 = vintp(vort, pres_np[:, k1_850:k2_850, :, :], [85000.]); vort850 = np.squeeze(vort850, axis=1)
             u850 = vintp(U_850_np, pres_np[:, k1_850:k2_850, :, :], [85000.]); u850 = np.squeeze(u850, axis=1)
             v850 = vintp(V_850_np, pres_np[:, k1_850:k2_850, :, :], [85000.]); v850 = np.squeeze(v850, axis=1)
-            u300 = vintp(U_300_np, pres_np[:, k1_300:k2_300, :, :], [30000.]); u300 = np.squeeze(u300, axis=1)
-            v300 = vintp(V_300_np, pres_np[:, k1_300:k2_300, :, :], [30000.]); v300 = np.squeeze(v300, axis=1)
         if has_psl:
             slp = dsi.PSL
         else:
@@ -291,8 +267,6 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     print(f'output filename: {outfile}')
     print(f'open files: {path}/{casename}.{file_pattern}')
     runtime_cfg = (config or {}).get('runtime') or {}
-    # Parallel mode determined solely by config (runtime.parallel_time)
-    parallel_time = bool(runtime_cfg.get('parallel_time'))
     cpu_cap = None
     try:
         cpu_cap = int(runtime_cfg.get('cpus')) if runtime_cfg.get('cpus') is not None else None
@@ -308,36 +282,12 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     if dlat >= 3. or dlon >= 3.:
         raise ValueError(f"Resolution too coarse: lat_inc={dlat}°, lon_inc={dlon}° (threshold=3°).")
 
-    if parallel_time:
-        print('Running time-parallel detection path...')
-        ds = run_parallel_detection(meta, casename, path, file_pattern, invert_vorticity_SH, cpu_cap)
-        meta.close()
-        timer.mark('TC_detect_parallel')
-        print(ds)
-        return ds
-    else:
-        # Sequential detection path
-        h0 = meta  # reuse opened dataset
-        h0 = rechunk_h0(h0, max_time_workers=cpu_cap); timer.mark('rechunk')
-        pres = (h0.hyam * h0.P0 + h0.hybm * h0.PS).transpose('time', 'lev', 'lat', 'lon')
-        print('Preparing data...')
-        pres, h0['U'], h0['V'] = dask.persist(pres, h0.U, h0.V); timer.mark('persist_pres_U_V')
-        u300, v300 = process_uv300(h0, pres, outpath, casename); timer.mark('uv300')
-        u850, v850 = process_uv850(h0, pres, outpath, casename); timer.mark('uv850')
-        vort = process_vorticity(h0, pres, outpath, casename); timer.mark('vorticity')
-        slp = process_slp(h0, pres, outpath, casename); timer.mark('slp')
-        if invert_vorticity_SH:
-            print('Inverting vorticity sign for the Southern Hemisphere.')
-            vort = xr.where(vort.lat < 0, -vort, vort).transpose('time', ...)
-        ps = h0.PS.compute(); timer.mark('ps_compute')
-        print('Detecting TC-like objects...')
-        ds = TC_detect(
-            latpad(vort, dlat),
-            uvlatpad(u850, dlat), uvlatpad(u300, dlat), uvlatpad(v850, dlat), uvlatpad(v300, dlat),
-            latpad(slp, dlat), latpad(ps, dlat), dlat, dlon
-        ); timer.mark('TC_detect')
-        print(ds)
-        return ds
+    print('Running time-parallel detection path (only mode)...')
+    ds = run_parallel_detection(meta, casename, path, file_pattern, invert_vorticity_SH, cpu_cap)
+    meta.close()
+    timer.mark('TC_detect_parallel')
+    print(ds)
+    return ds
 
 if __name__ == "__main__":
     config = load_config() # Default: config.yaml

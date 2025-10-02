@@ -72,7 +72,7 @@ if [ -r "${CONFIG_FILE}" ]; then
         } else {
             if(line ~ /^[ ]+conda_env:/){sub(/^[ ]+conda_env:/,"",line); env=trim(line)}
             else if(line ~ /^[ ]+cpus:/){sub(/^[ ]+cpus:/,"",line); cpus=trim(line)}
-            else if(line ~ /^[ ]+parallel_time:/){sub(/^[ ]+parallel_time:/,"",line); par_time=trim(line)}
+            # parallel_time removed (always parallel)
             else if(line ~ /^[ ]+compiler:/){sub(/^[ ]+compiler:/,"",line); compiler=trim(line)}
             else if(line ~ /^[ ]+compiler_flags:/){
                  if(index(line,">-")>0){ collecting_flags=1; next } else { sub(/^[ ]+compiler_flags:/,"",line); compiler_flags=trim(line) }
@@ -84,13 +84,12 @@ if [ -r "${CONFIG_FILE}" ]; then
         # Normalize compiler_flags; escape embedded double quotes for shell eval
         gsub(/^[ ]+|[ ]+$/,"",compiler_flags); gsub(/"/,"\\\"",compiler_flags)
         gsub(/"/,"\\\"",env); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler)
-        gsub(/"/,"\\\"",cpus); gsub(/"/,"\\\"",par_time); gsub(/"/,"\\\"",case_val); gsub(/"/,"\\\"",out_path)
+        gsub(/"/,"\\\"",cpus); gsub(/"/,"\\\"",case_val); gsub(/"/,"\\\"",out_path)
         print "RUNTIME_CONDA_ENV=\"" env "\""
         print "RUNTIME_MODULES=\"" load_modules "\""
         print "RUNTIME_COMPILER=\"" compiler "\""
         print "RUNTIME_COMPILER_FLAGS=\"" compiler_flags "\""
         print "RUNTIME_CPUS=\"" cpus "\""
-        print "RUNTIME_PARALLEL_TIME=\"" par_time "\""
         print "CONFIG_CASE=\"" case_val "\""
         print "CONFIG_OUTPUT_PATH=\"" out_path "\""
     }
@@ -114,7 +113,6 @@ load_modules() {
     done
 }
 
-GEN_SUBMIT=0
 JOB_NAME=""   # derive later from config if empty (TC.<case>)
 TIME_LIMIT=""  # include only if provided via CLI
 PARTITION=""   # include only if provided via CLI
@@ -124,8 +122,6 @@ OUTPUT_PREFIX=""  # derive from case if empty
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --generate-submit)
-            GEN_SUBMIT=1; shift ;;
         --job-name)
             JOB_NAME="$2"; shift 2 ;;
         --time)
@@ -144,7 +140,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "[run.sh] Modules: ${RUNTIME_MODULES:-<none>}" >&2
-echo "[run.sh] Conda env: ${RUNTIME_CONDA_ENV:-<none>} (submit mode: $GEN_SUBMIT)" >&2
+echo "[run.sh] Conda env: ${RUNTIME_CONDA_ENV:-<none>}" >&2
 echo "[run.sh] Case: ${CONFIG_CASE:-<none>}" >&2
 echo "[run.sh] Output path: ${CONFIG_OUTPUT_PATH:-<none>}" >&2
 echo "[run.sh] Runtime cpus (config): ${RUNTIME_CPUS:-<none>}" >&2
@@ -161,71 +157,51 @@ if [ -z "$CPUS" ] && [ -n "${RUNTIME_CPUS:-}" ]; then
 fi
 export TC_CPUS="${CPUS:-1}"
 
-if [ $GEN_SUBMIT -eq 1 ]; then
-    SUBMIT_FILE="submit.sh"
-    echo "[run.sh] Generating $SUBMIT_FILE for sbatch (job=${JOB_NAME})" >&2
-    # Ensure output path exists
-    [ -n "$CONFIG_OUTPUT_PATH" ] && mkdir -p "$CONFIG_OUTPUT_PATH"
-        if [ -n "$PRIMARY_CASE" ]; then
-            mkdir -p "$CONFIG_OUTPUT_PATH/$PRIMARY_CASE"
-            LOG_OUT_PATH="$CONFIG_OUTPUT_PATH/$PRIMARY_CASE/${OUTPUT_PREFIX}.out"
-            LOG_ERR_PATH="$CONFIG_OUTPUT_PATH/$PRIMARY_CASE/${OUTPUT_PREFIX}.err"
-        else
-            LOG_OUT_PATH="$CONFIG_OUTPUT_PATH/${OUTPUT_PREFIX}.out"
-            LOG_ERR_PATH="$CONFIG_OUTPUT_PATH/${OUTPUT_PREFIX}.err"
-        fi
-    {
-        echo "#!/bin/bash"
-        echo "#SBATCH --job-name=${JOB_NAME}"
-        echo "#SBATCH --nodes=1"
-        [ -n "$PARTITION" ] && echo "#SBATCH --partition=${PARTITION}"
-        [ -n "$CPUS" ] && echo "#SBATCH --cpus-per-task=${CPUS}"
-        [ -n "$TIME_LIMIT" ] && echo "#SBATCH --time=${TIME_LIMIT}"
-        [ -n "$ACCOUNT" ] && echo "#SBATCH --account=${ACCOUNT}"
-        if [ -n "$CONFIG_OUTPUT_PATH" ]; then
-            echo "#SBATCH --output=${LOG_OUT_PATH}"
-            echo "#SBATCH --error=${LOG_ERR_PATH}"
-        else
-            echo "#SBATCH --output=${OUTPUT_PREFIX}.out"
-            echo "#SBATCH --error=${OUTPUT_PREFIX}.err"
-        fi
-        echo "set -euo pipefail"
-        echo "SCRIPT_DIR=\"\$(cd \"\$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\""
-        echo "CONFIG_FILE=\"${CONFIG_FILE}\""
-        echo "RUNTIME_CONDA_ENV=\"${RUNTIME_CONDA_ENV}\""
-        echo "RUNTIME_MODULES=\"${RUNTIME_MODULES}\""
-        echo 'ensure_conda_env() { local target_env="$1"; if [ -z "$target_env" ]; then return 0; fi; local current_env; current_env=$(conda info --json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get(\"active_prefix_name\",\"\"))" || echo ""); if [ -z "$current_env" ] || [ "$current_env" != "$target_env" ]; then __conda_setup="$(conda shell.bash hook 2>/dev/null)" || true; [ -n "${__conda_setup}" ] && eval "${__conda_setup}" && conda activate "$target_env"; fi; }'
-        echo 'load_modules() { local modules_line="$1"; [ -z "$modules_line" ] && return 0; module purge || true; for m in $modules_line; do module load "$m"; done; }'
-        echo 'echo "[submit] Starting job on $(date)"'
-        echo 'echo "[submit] Conda env: ${RUNTIME_CONDA_ENV}"'
-        echo 'echo "[submit] Modules: ${RUNTIME_MODULES}"'
-        echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
-    echo 'python "${SCRIPT_DIR}/tc_algorithm.py"'
-        echo 'load_modules "${RUNTIME_MODULES}"'
-        echo '( cd "${SCRIPT_DIR}" && ./tracking.sh )'
-        echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
-    echo 'python "${SCRIPT_DIR}/TC_lifetime.py"'
-        echo 'echo "[submit] Finished at $(date)"'
-    } > "$SUBMIT_FILE"
-    chmod +x "$SUBMIT_FILE"
-    echo "[run.sh] submit.sh created. Submit with: sbatch $SUBMIT_FILE" >&2
-    exit 0
+SUBMIT_FILE="submit.sh"
+echo "[run.sh] Generating $SUBMIT_FILE for sbatch (job=${JOB_NAME})" >&2
+[ -n "$CONFIG_OUTPUT_PATH" ] && mkdir -p "$CONFIG_OUTPUT_PATH"
+if [ -n "$PRIMARY_CASE" ]; then
+    mkdir -p "$CONFIG_OUTPUT_PATH/$PRIMARY_CASE"
+    LOG_OUT_PATH="$CONFIG_OUTPUT_PATH/$PRIMARY_CASE/${OUTPUT_PREFIX}.out"
+    LOG_ERR_PATH="$CONFIG_OUTPUT_PATH/$PRIMARY_CASE/${OUTPUT_PREFIX}.err"
+else
+    LOG_OUT_PATH="$CONFIG_OUTPUT_PATH/${OUTPUT_PREFIX}.out"
+    LOG_ERR_PATH="$CONFIG_OUTPUT_PATH/${OUTPUT_PREFIX}.err"
 fi
-
-# Phase 1: Python detection / preprocessing
-ensure_conda_env "${RUNTIME_CONDA_ENV}"
-python "${SCRIPT_DIR}/tc_algorithm.py"
-
-# Phase 2: Fortran tracking (requires modules)
-load_modules "${RUNTIME_MODULES}"
-(
-    cd "${SCRIPT_DIR}" || exit 1
-    ./tracking.sh
-)
-
-# Phase 3: Post-processing lifetime (may need Python env again if modules changed PATH)
-ensure_conda_env "${RUNTIME_CONDA_ENV}"
-python "${SCRIPT_DIR}/TC_lifetime.py"
-
-echo "[run.sh] Completed successfully" >&2
+{
+    echo "#!/bin/bash"
+    echo "#SBATCH --job-name=${JOB_NAME}"
+    echo "#SBATCH --nodes=1"
+    [ -n "$PARTITION" ] && echo "#SBATCH --partition=${PARTITION}"
+    [ -n "$CPUS" ] && echo "#SBATCH --cpus-per-task=${CPUS}"
+    [ -n "$TIME_LIMIT" ] && echo "#SBATCH --time=${TIME_LIMIT}"
+    [ -n "$ACCOUNT" ] && echo "#SBATCH --account=${ACCOUNT}"
+    if [ -n "$CONFIG_OUTPUT_PATH" ]; then
+        echo "#SBATCH --output=${LOG_OUT_PATH}"
+        echo "#SBATCH --error=${LOG_ERR_PATH}"
+    else
+        echo "#SBATCH --output=${OUTPUT_PREFIX}.out"
+        echo "#SBATCH --error=${OUTPUT_PREFIX}.err"
+    fi
+    echo "set -euo pipefail"
+    echo "SCRIPT_DIR=\"\$(cd \"\$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\""
+    echo "CONFIG_FILE=\"${CONFIG_FILE}\""
+    echo "RUNTIME_CONDA_ENV=\"${RUNTIME_CONDA_ENV}\""
+    echo "RUNTIME_MODULES=\"${RUNTIME_MODULES}\""
+    echo 'ensure_conda_env() { local target_env="$1"; if [ -z "$target_env" ]; then return 0; fi; local current_env; current_env=$(conda info --json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get(\"active_prefix_name\",\"\"))" || echo ""); if [ -z "$current_env" ] || [ "$current_env" != "$target_env" ]; then __conda_setup="$(conda shell.bash hook 2>/dev/null)" || true; [ -n "${__conda_setup}" ] && eval "${__conda_setup}" && conda activate "$target_env"; fi; }'
+    echo 'load_modules() { local modules_line="$1"; [ -z "$modules_line" ] && return 0; module purge || true; for m in $modules_line; do module load "$m"; done; }'
+    echo 'echo "[submit] Starting job on $(date)"'
+    echo 'echo "[submit] Conda env: ${RUNTIME_CONDA_ENV}"'
+    echo 'echo "[submit] Modules: ${RUNTIME_MODULES}"'
+    echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
+    echo 'python "${SCRIPT_DIR}/tc_algorithm.py"'
+    echo 'load_modules "${RUNTIME_MODULES}"'
+    echo '( cd "${SCRIPT_DIR}" && ./tracking.sh )'
+    echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
+    echo 'python "${SCRIPT_DIR}/TC_lifetime.py"'
+    echo 'echo "[submit] Finished at $(date)"'
+} > "$SUBMIT_FILE"
+chmod +x "$SUBMIT_FILE"
+echo "[run.sh] submit.sh created. Submit with: sbatch $SUBMIT_FILE" >&2
+exit 0
 

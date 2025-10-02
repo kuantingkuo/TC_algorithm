@@ -1,8 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=TC.test
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
-#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32
 #SBATCH --output=/data/W.eddie/track_output//test/TC.test.out
 #SBATCH --error=/data/W.eddie/track_output//test/TC.test.err
 set -euo pipefail

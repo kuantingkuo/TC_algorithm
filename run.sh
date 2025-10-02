@@ -20,60 +20,84 @@ RUNTIME_COMPILER_FLAGS=""
 CONFIG_CASE=""
 CONFIG_OUTPUT_PATH=""
 
-# Extract runtime settings from YAML (requires PyYAML); pass CONFIG_FILE as argv[1]
+# Simple conda activation helper (no python fallback logic)
+ensure_conda_env() {
+    local target_env="$1"
+    [ -z "$target_env" ] && return 0
+    command -v conda >/dev/null 2>&1 || { echo "[run.sh] WARNING: conda not in PATH; skipping activation ($target_env)" >&2; return 0; }
+    if ! type -t conda >/dev/null 2>&1 || ! conda info --base >/dev/null 2>&1; then
+        if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+            # shellcheck disable=SC1091
+            . "$HOME/miniconda3/etc/profile.d/conda.sh"
+        else
+            base_dir="$(conda info --base 2>/dev/null || true)"
+            [ -n "$base_dir" ] && . "$base_dir/etc/profile.d/conda.sh" 2>/dev/null || true
+        fi
+    fi
+    local current_env
+    current_env=$(conda info --json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('active_prefix_name',''))" 2>/dev/null || echo "")
+    if [ "$current_env" != "$target_env" ]; then
+        echo "[run.sh] Activating conda env $target_env" >&2
+        conda activate "$target_env" || echo "[run.sh] WARNING: failed to activate $target_env" >&2
+    else
+        echo "[run.sh] Conda env $target_env already active" >&2
+    fi
+}
+
+# Pure bash/awk extraction of required keys (no PyYAML dependency)
+# NOTE: This is a lightweight parser tailored to current config structure; not a general YAML parser.
 if [ -r "${CONFIG_FILE}" ]; then
-    eval "$(python - "$CONFIG_FILE" <<'PY'
-import yaml, sys, shlex, os
-cfg_path = sys.argv[1]
-try:
-    with open(cfg_path) as f:
-        cfg = yaml.safe_load(f) or {}
-except Exception as e:
-    print(f'echo "[run.sh] WARNING: Failed to read {cfg_path}: {e}" >&2')
-    cfg = {}
-rt = (cfg.get('runtime') or {})
-env = rt.get('conda_env') or ''
-mods = rt.get('load_modules') or []
-compiler = rt.get('compiler') or ''
-flags = rt.get('compiler_flags') or ''
-flags_one_line = " ".join(str(flags).split())
-cpus_cfg = rt.get('cpus') or ''
-case_val = cfg.get('case') or ''
-out_path = cfg.get('output_path') or ''
-print(f'RUNTIME_CONDA_ENV={shlex.quote(env)}')
-print(f'RUNTIME_MODULES={shlex.quote(" ".join(mods))}')
-print(f'RUNTIME_COMPILER={shlex.quote(compiler)}')
-print(f'RUNTIME_COMPILER_FLAGS={shlex.quote(flags_one_line)}')
-print(f'RUNTIME_CPUS={shlex.quote(str(cpus_cfg))}')
-print(f'CONFIG_CASE={shlex.quote(str(case_val))}')
-print(f'CONFIG_OUTPUT_PATH={shlex.quote(out_path)}')
-PY
-    )"
+    eval "$(awk '
+    function trim(s){gsub(/^ +| +$/,"",s);return s}
+    BEGIN{
+        in_runtime=0; collecting_flags=0; collecting_modules=0;
+    }
+    /^[\t ]*$/ {next}
+    /^[ ]*#/ {next}
+    # Detect runtime section start
+    /^runtime:[ ]*$/ {in_runtime=1; next}
+    # New top-level key ends runtime section
+    /^[^ \t]/ && $0 !~ /^runtime:/ {in_runtime=0}
+    {
+        line=$0
+        if(collecting_flags){
+            if(line ~ /^[ ]{2,}-.*/ || line ~ /^[ ]{2,}[A-Za-z0-9_]+:/){collecting_flags=0} else if(line ~ /^[ ]{2,}.*/){ sub(/^[ ]+/,"",line); compiler_flags=compiler_flags" "line; next } else {collecting_flags=0}
+        }
+        if(collecting_modules){
+            if(line ~ /^[ ]{2,}- /){ m=line; sub(/^[ ]+- /,"",m); load_modules=(load_modules?load_modules" "m:m); next } else if(line ~ /^[ ]{2,}[A-Za-z0-9_]+:/){collecting_modules=0} else if(line ~ /^[^ ]/){collecting_modules=0}
+        }
+        if(!in_runtime){
+            if(line ~ /^case:/){sub(/case:/,"",line); case_val=trim(line)}
+            else if(line ~ /^output_path:/){sub(/output_path:/,"",line); out_path=trim(line)}
+        } else {
+            if(line ~ /^[ ]+conda_env:/){sub(/^[ ]+conda_env:/,"",line); env=trim(line)}
+            else if(line ~ /^[ ]+cpus:/){sub(/^[ ]+cpus:/,"",line); cpus=trim(line)}
+            else if(line ~ /^[ ]+parallel_time:/){sub(/^[ ]+parallel_time:/,"",line); par_time=trim(line)}
+            else if(line ~ /^[ ]+compiler:/){sub(/^[ ]+compiler:/,"",line); compiler=trim(line)}
+            else if(line ~ /^[ ]+compiler_flags:/){
+                 if(index(line,">-")>0){ collecting_flags=1; next } else { sub(/^[ ]+compiler_flags:/,"",line); compiler_flags=trim(line) }
+            }
+            else if(line ~ /^[ ]+load_modules:/){ collecting_modules=1 }
+        }
+    }
+    END{
+        # Normalize compiler_flags; escape embedded double quotes for shell eval
+        gsub(/^[ ]+|[ ]+$/,"",compiler_flags); gsub(/"/,"\\\"",compiler_flags)
+        gsub(/"/,"\\\"",env); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler)
+        gsub(/"/,"\\\"",cpus); gsub(/"/,"\\\"",par_time); gsub(/"/,"\\\"",case_val); gsub(/"/,"\\\"",out_path)
+        print "RUNTIME_CONDA_ENV=\"" env "\""
+        print "RUNTIME_MODULES=\"" load_modules "\""
+        print "RUNTIME_COMPILER=\"" compiler "\""
+        print "RUNTIME_COMPILER_FLAGS=\"" compiler_flags "\""
+        print "RUNTIME_CPUS=\"" cpus "\""
+        print "RUNTIME_PARALLEL_TIME=\"" par_time "\""
+        print "CONFIG_CASE=\"" case_val "\""
+        print "CONFIG_OUTPUT_PATH=\"" out_path "\""
+    }
+    ' "${CONFIG_FILE}")"
 else
     echo "[run.sh] WARNING: Config not readable (permission?) falling back to defaults" >&2
 fi
-
-ensure_conda_env() {
-    local target_env="$1"
-    if [ -z "$target_env" ]; then
-        echo "[run.sh] No conda env specified; skipping activation" >&2
-        return 0
-    fi
-    local current_env
-    current_env=$(conda info --json 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('active_prefix_name', ''))" || echo "")
-    if [ -z "$current_env" ] || [ "$current_env" != "$target_env" ]; then
-            echo "[run.sh] Activating conda env $target_env" >&2
-            __conda_setup="$(conda shell.bash hook 2> /dev/null)" || true
-            if [ -n "${__conda_setup}" ]; then
-                eval "${__conda_setup}"
-                conda activate "$target_env"
-            else
-                echo "[run.sh] WARNING: Could not initialize conda shell hook" >&2
-            fi
-    else
-            echo "[run.sh] Conda env $target_env already active" >&2
-    fi
-}
 
 PRIMARY_CASE="${CONFIG_CASE}"
 load_modules() {
@@ -156,7 +180,6 @@ if [ $GEN_SUBMIT -eq 1 ]; then
         echo "#SBATCH --nodes=1"
         [ -n "$PARTITION" ] && echo "#SBATCH --partition=${PARTITION}"
         [ -n "$CPUS" ] && echo "#SBATCH --cpus-per-task=${CPUS}"
-        echo "#SBATCH --ntasks=1"
         [ -n "$TIME_LIMIT" ] && echo "#SBATCH --time=${TIME_LIMIT}"
         [ -n "$ACCOUNT" ] && echo "#SBATCH --account=${ACCOUNT}"
         if [ -n "$CONFIG_OUTPUT_PATH" ]; then
@@ -177,11 +200,11 @@ if [ $GEN_SUBMIT -eq 1 ]; then
         echo 'echo "[submit] Conda env: ${RUNTIME_CONDA_ENV}"'
         echo 'echo "[submit] Modules: ${RUNTIME_MODULES}"'
         echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
-        echo 'python "${SCRIPT_DIR}/tc_algorithm.py"'
+    echo 'python "${SCRIPT_DIR}/tc_algorithm.py"'
         echo 'load_modules "${RUNTIME_MODULES}"'
         echo '( cd "${SCRIPT_DIR}" && ./tracking.sh )'
         echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
-        echo 'python "${SCRIPT_DIR}/TC_lifetime.py"'
+    echo 'python "${SCRIPT_DIR}/TC_lifetime.py"'
         echo 'echo "[submit] Finished at $(date)"'
     } > "$SUBMIT_FILE"
     chmod +x "$SUBMIT_FILE"

@@ -5,7 +5,8 @@ file_pattern: cam.h0.*.nc
 invert_vorticity_SH: False
 runtime:
   conda_env: forge
-  cpus: 16
+  cpus: 32
+  parallel_time: true
   load_modules:
     - Intel-oneAPI-2022.1
     - szip/2.1.1

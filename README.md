@@ -36,6 +36,7 @@ Optional HPC environment settings (under `runtime:`):
 - `cpus`: Logical CPU count used for time-parallel detection.
 - `module_use`: (New) A modulefiles directory path to prepend via `module use <path>` before any `module load` statements. If empty or omitted, no `module use` line is emitted.
 - `account`: Default Slurm account to use if `--account` not passed to `run.sh`.
+- `partition`: Default Slurm partition to use if `--partition` not passed.
 - `load_modules`: List of modules to load (after optional `module use`).
 - `compiler` / `compiler_flags`: Used to rewrite `tracking/tracking2/compile.sh` `COMPILE_COMMAND`.
 

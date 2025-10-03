@@ -7,6 +7,7 @@ runtime:
   conda_env: forge
   cpus: 32
   account:
+  partition:
   module_use:
   load_modules:
     - Intel-oneAPI-2022.1

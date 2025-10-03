@@ -17,6 +17,7 @@ RUNTIME_CONDA_ENV=""
 RUNTIME_MODULES=""
 RUNTIME_COMPILER=""
 RUNTIME_COMPILER_FLAGS=""
+RUNTIME_MODULE_USE=""  # optional additional modulefiles path
 CONFIG_CASE=""
 CONFIG_OUTPUT_PATH=""
 
@@ -77,13 +78,14 @@ if [ -r "${CONFIG_FILE}" ]; then
             else if(line ~ /^[ ]+compiler_flags:/){
                  if(index(line,">-")>0){ collecting_flags=1; next } else { sub(/^[ ]+compiler_flags:/,"",line); compiler_flags=trim(line) }
             }
+            else if(line ~ /^[ ]+module_use:/){sub(/^[ ]+module_use:/,"",line); module_use=trim(line)}
             else if(line ~ /^[ ]+load_modules:/){ collecting_modules=1 }
         }
     }
     END{
         # Normalize compiler_flags; escape embedded double quotes for shell eval
         gsub(/^[ ]+|[ ]+$/,"",compiler_flags); gsub(/"/,"\\\"",compiler_flags)
-        gsub(/"/,"\\\"",env); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler)
+        gsub(/"/,"\\\"",env); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler); gsub(/"/,"\\\"",module_use)
         gsub(/"/,"\\\"",cpus); gsub(/"/,"\\\"",case_val); gsub(/"/,"\\\"",out_path)
         print "RUNTIME_CONDA_ENV=\"" env "\""
         print "RUNTIME_MODULES=\"" load_modules "\""
@@ -92,6 +94,7 @@ if [ -r "${CONFIG_FILE}" ]; then
         print "RUNTIME_CPUS=\"" cpus "\""
         print "CONFIG_CASE=\"" case_val "\""
         print "CONFIG_OUTPUT_PATH=\"" out_path "\""
+        print "RUNTIME_MODULE_USE=\"" module_use "\""
     }
     ' "${CONFIG_FILE}")"
 else
@@ -144,6 +147,7 @@ echo "[run.sh] Conda env: ${RUNTIME_CONDA_ENV:-<none>}" >&2
 echo "[run.sh] Case: ${CONFIG_CASE:-<none>}" >&2
 echo "[run.sh] Output path: ${CONFIG_OUTPUT_PATH:-<none>}" >&2
 echo "[run.sh] Runtime cpus (config): ${RUNTIME_CPUS:-<none>}" >&2
+echo "[run.sh] Module use path: ${RUNTIME_MODULE_USE:-<none>}" >&2
 
 # Derive defaults after CLI parsing
 if [ -z "$JOB_NAME" ]; then
@@ -188,11 +192,13 @@ fi
     echo "CONFIG_FILE=\"${CONFIG_FILE}\""
     echo "RUNTIME_CONDA_ENV=\"${RUNTIME_CONDA_ENV}\""
     echo "RUNTIME_MODULES=\"${RUNTIME_MODULES}\""
+    echo "RUNTIME_MODULE_USE=\"${RUNTIME_MODULE_USE}\""
     echo 'ensure_conda_env() { local target_env="$1"; if [ -z "$target_env" ]; then return 0; fi; local current_env; current_env=$(conda info --json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get(\"active_prefix_name\",\"\"))" || echo ""); if [ -z "$current_env" ] || [ "$current_env" != "$target_env" ]; then __conda_setup="$(conda shell.bash hook 2>/dev/null)" || true; [ -n "${__conda_setup}" ] && eval "${__conda_setup}" && conda activate "$target_env"; fi; }'
     echo 'load_modules() { local modules_line="$1"; [ -z "$modules_line" ] && return 0; module purge || true; for m in $modules_line; do module load "$m"; done; }'
     echo 'echo "[submit] Starting job on $(date)"'
     echo 'echo "[submit] Conda env: ${RUNTIME_CONDA_ENV}"'
     echo 'echo "[submit] Modules: ${RUNTIME_MODULES}"'
+    echo '[ -n "${RUNTIME_MODULE_USE}" ] && echo "[submit] module use ${RUNTIME_MODULE_USE}" && module use "${RUNTIME_MODULE_USE}"'
     echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
     echo 'python "${SCRIPT_DIR}/tc_algorithm.py"'
     echo 'load_modules "${RUNTIME_MODULES}"'

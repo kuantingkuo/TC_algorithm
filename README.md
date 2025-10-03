@@ -30,6 +30,14 @@ The input NetCDF files are primarily designed for CESM output and should include
 Edit `config.yaml` to specify your cases, input/output paths, file patterns, and options such as vorticity sign inversion for the Southern Hemisphere.
 Currently, the `cases` field supports only a single case at a time.
 
+Optional HPC environment settings (under `runtime:`):
+
+- `conda_env`: Name of conda environment to activate.
+- `cpus`: Logical CPU count used for time-parallel detection.
+- `module_use`: (New) A modulefiles directory path to prepend via `module use <path>` before any `module load` statements. If empty or omitted, no `module use` line is emitted.
+- `load_modules`: List of modules to load (after optional `module use`).
+- `compiler` / `compiler_flags`: Used to rewrite `tracking/tracking2/compile.sh` `COMPILE_COMMAND`.
+
 Example:
 
 ```yaml
@@ -39,6 +47,16 @@ case_path: /data/User/archive/
 output_path: /data/User/track_output/
 file_pattern: cam.h0.*.nc
 invert_vorticity_SH: true
+runtime:
+  conda_env: myenv
+  cpus: 32
+  module_use: /home/user/custom/modulefiles
+  load_modules:
+    - netcdf/4.7.4
+    - hdf5/1.12.0
+  compiler: ifort
+  compiler_flags: >-
+    -O2 -traceback
 ```
 
 ### Workflow Overview

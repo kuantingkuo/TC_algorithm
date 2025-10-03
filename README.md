@@ -35,6 +35,7 @@ Optional HPC environment settings (under `runtime:`):
 - `conda_env`: Name of conda environment to activate.
 - `cpus`: Logical CPU count used for time-parallel detection.
 - `module_use`: (New) A modulefiles directory path to prepend via `module use <path>` before any `module load` statements. If empty or omitted, no `module use` line is emitted.
+- `account`: Default Slurm account to use if `--account` not passed to `run.sh`.
 - `load_modules`: List of modules to load (after optional `module use`).
 - `compiler` / `compiler_flags`: Used to rewrite `tracking/tracking2/compile.sh` `COMPILE_COMMAND`.
 
@@ -51,6 +52,7 @@ runtime:
   conda_env: myenv
   cpus: 32
   module_use: /home/user/custom/modulefiles
+  account: proj1234
   load_modules:
     - netcdf/4.7.4
     - hdf5/1.12.0

@@ -18,6 +18,7 @@ RUNTIME_MODULES=""
 RUNTIME_COMPILER=""
 RUNTIME_COMPILER_FLAGS=""
 RUNTIME_MODULE_USE=""  # optional additional modulefiles path
+RUNTIME_ACCOUNT=""  # optional default Slurm account
 CONFIG_CASE=""
 CONFIG_OUTPUT_PATH=""
 
@@ -73,6 +74,7 @@ if [ -r "${CONFIG_FILE}" ]; then
         } else {
             if(line ~ /^[ ]+conda_env:/){sub(/^[ ]+conda_env:/,"",line); env=trim(line)}
             else if(line ~ /^[ ]+cpus:/){sub(/^[ ]+cpus:/,"",line); cpus=trim(line)}
+            else if(line ~ /^[ ]+account:/){sub(/^[ ]+account:/,"",line); acct=trim(line)}
             # parallel_time removed (always parallel)
             else if(line ~ /^[ ]+compiler:/){sub(/^[ ]+compiler:/,"",line); compiler=trim(line)}
             else if(line ~ /^[ ]+compiler_flags:/){
@@ -85,7 +87,7 @@ if [ -r "${CONFIG_FILE}" ]; then
     END{
         # Normalize compiler_flags; escape embedded double quotes for shell eval
         gsub(/^[ ]+|[ ]+$/,"",compiler_flags); gsub(/"/,"\\\"",compiler_flags)
-        gsub(/"/,"\\\"",env); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler); gsub(/"/,"\\\"",module_use)
+        gsub(/"/,"\\\"",env); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler); gsub(/"/,"\\\"",module_use); gsub(/"/,"\\\"",acct)
         gsub(/"/,"\\\"",cpus); gsub(/"/,"\\\"",case_val); gsub(/"/,"\\\"",out_path)
         print "RUNTIME_CONDA_ENV=\"" env "\""
         print "RUNTIME_MODULES=\"" load_modules "\""
@@ -95,6 +97,7 @@ if [ -r "${CONFIG_FILE}" ]; then
         print "CONFIG_CASE=\"" case_val "\""
         print "CONFIG_OUTPUT_PATH=\"" out_path "\""
         print "RUNTIME_MODULE_USE=\"" module_use "\""
+        print "RUNTIME_ACCOUNT=\"" acct "\""
     }
     ' "${CONFIG_FILE}")"
 else
@@ -148,6 +151,7 @@ echo "[run.sh] Case: ${CONFIG_CASE:-<none>}" >&2
 echo "[run.sh] Output path: ${CONFIG_OUTPUT_PATH:-<none>}" >&2
 echo "[run.sh] Runtime cpus (config): ${RUNTIME_CPUS:-<none>}" >&2
 echo "[run.sh] Module use path: ${RUNTIME_MODULE_USE:-<none>}" >&2
+echo "[run.sh] Slurm account (config): ${RUNTIME_ACCOUNT:-<none>}" >&2
 
 # Derive defaults after CLI parsing
 if [ -z "$JOB_NAME" ]; then
@@ -156,9 +160,8 @@ fi
 if [ -z "$OUTPUT_PREFIX" ]; then
     if [ -n "$PRIMARY_CASE" ]; then OUTPUT_PREFIX="TC.${PRIMARY_CASE}"; else OUTPUT_PREFIX="tc_job"; fi
 fi
-if [ -z "$CPUS" ] && [ -n "${RUNTIME_CPUS:-}" ]; then
-    CPUS="$RUNTIME_CPUS"
-fi
+if [ -z "$CPUS" ] && [ -n "${RUNTIME_CPUS:-}" ]; then CPUS="$RUNTIME_CPUS"; fi
+if [ -z "$ACCOUNT" ] && [ -n "${RUNTIME_ACCOUNT:-}" ]; then ACCOUNT="$RUNTIME_ACCOUNT"; fi
 export TC_CPUS="${CPUS:-1}"
 
 SUBMIT_FILE="submit.sh"
@@ -193,6 +196,7 @@ fi
     echo "RUNTIME_CONDA_ENV=\"${RUNTIME_CONDA_ENV}\""
     echo "RUNTIME_MODULES=\"${RUNTIME_MODULES}\""
     echo "RUNTIME_MODULE_USE=\"${RUNTIME_MODULE_USE}\""
+    echo "RUNTIME_ACCOUNT=\"${RUNTIME_ACCOUNT}\""
     echo 'ensure_conda_env() { local target_env="$1"; if [ -z "$target_env" ]; then return 0; fi; local current_env; current_env=$(conda info --json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get(\"active_prefix_name\",\"\"))" || echo ""); if [ -z "$current_env" ] || [ "$current_env" != "$target_env" ]; then __conda_setup="$(conda shell.bash hook 2>/dev/null)" || true; [ -n "${__conda_setup}" ] && eval "${__conda_setup}" && conda activate "$target_env"; fi; }'
     echo 'load_modules() { local modules_line="$1"; [ -z "$modules_line" ] && return 0; module purge || true; for m in $modules_line; do module load "$m"; done; }'
     echo 'echo "[submit] Starting job on $(date)"'

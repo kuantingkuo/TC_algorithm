@@ -1,11 +1,11 @@
-case: test
+case: f02.F2000.Tai-Talim.su11
 case_path: /data/W.eddie/SPCAM/
 output_path: /data/W.eddie/track_output/
-file_pattern: cam.h0.*.nc
-invert_vorticity_SH: False
+file_pattern: cam.h1.*.nc
+invert_vorticity_SH: True
 runtime:
   conda_env: forge
-  cpus: 32
+  cpus: 16
   account:
   partition:
   module_use:

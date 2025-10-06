@@ -199,7 +199,8 @@ def _compute_features_time_batch_from_dataset(ds_batch, invert_vorticity_SH):
         coords = dict(time=dsi.time, lat=dsi.lat, lon=dsi.lon)
         vort_da = xr.DataArray(vort850, coords=coords, dims=('time','lat','lon'), name='vorticity')
         if invert_vorticity_SH:
-            vort_da = xr.where(vort_da.lat < 0, -vort_da, vort_da)
+            Smask = (vort_da.lat < 0).broadcast_like(vort_da)
+            vort_da = xr.where(Smask, -vort_da, vort_da)
         u850_da = xr.DataArray(u850, coords=coords, dims=('time','lat','lon'))
         v850_da = xr.DataArray(v850, coords=coords, dims=('time','lat','lon'))
         u300_da = xr.DataArray(u300, coords=coords, dims=('time','lat','lon'))

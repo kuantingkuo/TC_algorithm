@@ -66,7 +66,7 @@ def main(case, sstfils, path):
     nTC = 0
     life_all = 0
     print(ctime(), 'open SST files:', sstfils)
-    sstnc = xr.open_mfdataset(sstfils); timer.mark('open_sst_mfdataset')
+    sstnc = xr.open_mfdataset(sstfils, data_vars='all'); timer.mark('open_sst_mfdataset')
     if 'SST' in sstnc.data_vars:
         sst = sstnc.SST
         var_timer_tag = 'select_SST'

@@ -220,7 +220,7 @@ def _compute_features_time_batch_from_dataset(ds_batch, invert_vorticity_SH):
 def _worker_time_batch(args):
     time_indices, casename, path, file_pattern, invert_flag, var_needed = args
     # Reopen dataset fresh in each process
-    ds = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False)
+    ds = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False, data_vars='all')
     try:
         # Subset to required time indices and variables
         sub = ds.isel(time=time_indices)
@@ -274,7 +274,7 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     except ValueError:
         cpu_cap = None
     # Always compute IRT parameters & compile settings once (not part of parallel work)
-    meta = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False)
+    meta = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False, data_vars='all')
     params = irt_params(meta); timer.mark('extract_params')
     update_irt_parameters('tracking/tracking2/irt_parameters.f90', params)
     update_compile_command(config or {})

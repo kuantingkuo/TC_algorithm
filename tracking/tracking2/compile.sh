@@ -1,19 +1,19 @@
 #!/bin/bash
-set -ex
+#set -ex
 
 # netcdf configure flag
 # ifort -o ooo.x ooo.f $(nc-config --fflags --flibs)
 COMPILE_COMMAND="ifort -no-wrap-margin -mcmodel=large -check bounds -debug all -traceback -g -shared-intel -free -heap-arrays 10 -I/opt/libs-intel-oneapi/netcdf-4.7.4/include -L/opt/libs-intel-oneapi/netcdf-4.7.4/lib -lnetcdff"
 
 # clean:
-set +e
+#set +e
 rm irt_parameters.mod
 rm irt_objects_release.x
 rm irt_advection_field_release.x
 rm irt_tracks_release.x
 rm irt_trackmask_release.x
 rm irt_tracklinks_release.x
-set -ex
+#set -ex
 
 # compile:
 ${COMPILE_COMMAND} -o irt_objects_release.x irt_parameters.f90 irt_tools.f90 irt_objects_release.f90 

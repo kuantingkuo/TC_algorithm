@@ -8,7 +8,7 @@
 #SBATCH --output=track0529.o%j    # File name for standard output
 #SBATCH --error=track0529.o%j     # File name for standard error output
 
-set -ex
+#set -ex
 
 
 DATENPFAD=${PWD}/../tracking_data

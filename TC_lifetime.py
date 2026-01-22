@@ -39,21 +39,20 @@ def lifetime(sec, sst):
         ny = sst.shape[-2]
     else:
         raise ValueError("SST input must have at least 3 dims")
-    for line in sec[2:]:
-        parts = line.split()
-        if len(parts) < 16:
-            continue
-        t = int(parts[1])
-        x = int(np.round(float(parts[14]))) - 1
-        y = int(np.round(float(parts[15]))) - 1
-        x %= nx
-        if t < 0 or t >= sst.shape[0] or y < 0 or y >= ny:
-            raise ValueError("Track line index out of bounds")
-        val = sst[t, y, x]
-        if hasattr(val, 'compute'):
-            val = val.compute()
-        if val >= SST_THRESHOLD_K:
-            return TCid, life
+    parts = next((p for p in (line.split() for line in sec[2:]) if len(p) >= 16), None)
+    if parts is None:
+        return 0, 0
+    t = int(parts[1])
+    x = int(np.round(float(parts[14]))) - 1
+    y = int(np.round(float(parts[15]))) - 1
+    x %= nx
+    if t < 0 or t >= sst.shape[0] or y < 0 or y >= ny:
+        raise ValueError("Track line index out of bounds")
+    val = sst[t, y, x]
+    if hasattr(val, 'compute'):
+        val = val.compute()
+    if val >= SST_THRESHOLD_K:
+        return TCid, life
     return 0, 0
 
 @numba.njit(parallel=True)

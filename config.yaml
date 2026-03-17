@@ -1,4 +1,7 @@
-case: Talim0903_gen_vary8
+cases:
+  - Talim0903_gen_vary20
+  - Talim0903_gen_vary32
+  - Talim0903_gen_vary40
 case_path: /data3/SPCAM/
 output_path: /data/W.eddie/track_output/
 file_pattern: cam.h1.*.nc

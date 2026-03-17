@@ -4,8 +4,22 @@ from utils import (load_config, StepTimer, vertical_slice_bounds, vintp, latpad,
 from tc_detection import TC_detect
 import os
 import math
+import argparse
+import fcntl
+import json
+import hashlib
+import shutil
+import subprocess
 from concurrent.futures import ProcessPoolExecutor
 from windspharm.standard import VectorWind
+
+REQUIRED_IRT_BINARIES = [
+    'irt_objects_release.x',
+    'irt_advection_field_release.x',
+    'irt_tracks_release.x',
+    'irt_trackmask_release.x',
+    'irt_tracklinks_release.x',
+]
 
 def irt_params(h0):
     """
@@ -95,6 +109,84 @@ def update_compile_command(config, compile_script_path="tracking/tracking2/compi
             f.writelines(new_lines)
     except Exception:
         pass
+
+class FileLock:
+    def __init__(self, lock_file):
+        self.lock_file = lock_file
+        self._fh = None
+
+    def __enter__(self):
+        lock_dir = os.path.dirname(self.lock_file)
+        if lock_dir:
+            os.makedirs(lock_dir, exist_ok=True)
+        self._fh = open(self.lock_file, "w")
+        fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._fh is not None:
+            fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+            self._fh.close()
+        return False
+
+def _grid_signature(params):
+    payload = {
+        'domainsize_x': int(params['domainsize_x']),
+        'domainsize_y': int(params['domainsize_y']),
+        'time_steps': int(params['time_steps']),
+        'lat_first': round(float(params['lat_first']), 8),
+        'lat_inc': round(float(params['lat_inc']), 10),
+        'lon_inc': round(float(params['lon_inc']), 8),
+        'lpole': bool(params['lpole']),
+    }
+    key = json.dumps(payload, sort_keys=True, separators=(',', ':'))
+    digest = hashlib.sha1(key.encode('utf-8')).hexdigest()[:12]
+    name = f"x{payload['domainsize_x']}_y{payload['domainsize_y']}_t{payload['time_steps']}_{digest}"
+    return name, key
+
+def _binaries_ready(build_dir):
+    return all(os.path.isfile(os.path.join(build_dir, exe)) for exe in REQUIRED_IRT_BINARIES)
+
+def _write_build_metadata(case_out_dir, build_dir, grid_key):
+    os.makedirs(case_out_dir, exist_ok=True)
+    with open(os.path.join(case_out_dir, '.irt_build_dir'), 'w') as file_obj:
+        file_obj.write(f"{build_dir}\n")
+    with open(os.path.join(case_out_dir, '.irt_grid_signature'), 'w') as file_obj:
+        file_obj.write(f"{grid_key}\n")
+
+def prepare_irt_build(params, config, case_out_dir):
+    runtime = (config or {}).get('runtime') or {}
+    compile_lock_file = runtime.get('compile_lock_file', '/tmp/tc_algorithm_compile.lock')
+    cache_root = runtime.get('irt_build_cache_root', 'tracking/build_cache')
+    source_dir = 'tracking/tracking2'
+    sig_name, sig_key = _grid_signature(params)
+    build_dir = os.path.join(cache_root, sig_name)
+
+    with FileLock(compile_lock_file):
+        os.makedirs(cache_root, exist_ok=True)
+        if not os.path.isdir(build_dir):
+            shutil.copytree(source_dir, build_dir)
+
+        update_irt_parameters(os.path.join(build_dir, 'irt_parameters.f90'), params)
+        update_compile_command(config or {}, os.path.join(build_dir, 'compile.sh'))
+
+        if not _binaries_ready(build_dir):
+            result = subprocess.run(
+                ['bash', 'compile.sh'],
+                cwd=build_dir,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"IRT build compile failed in {build_dir}\n"
+                    f"stdout:\n{result.stdout}\n"
+                    f"stderr:\n{result.stderr}"
+                )
+
+    _write_build_metadata(case_out_dir, os.path.abspath(build_dir), sig_key)
+    return os.path.abspath(build_dir)
 
 def pre(ds):
     return ds.sel(lev=slice(200,None))
@@ -269,16 +361,17 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     print(f'open files: {path}/{casename}.{file_pattern}')
     runtime_cfg = (config or {}).get('runtime') or {}
     cpu_cap = None
+    cpu_cap_value = runtime_cfg.get('cpus')
     try:
-        cpu_cap = int(runtime_cfg.get('cpus')) if runtime_cfg.get('cpus') is not None else None
-    except ValueError:
+        cpu_cap = int(str(cpu_cap_value)) if cpu_cap_value is not None else None
+    except (TypeError, ValueError):
         cpu_cap = None
     # Always compute IRT parameters & compile settings once (not part of parallel work)
     meta = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False, data_vars='all')
     params = irt_params(meta); timer.mark('extract_params')
-    update_irt_parameters('tracking/tracking2/irt_parameters.f90', params)
-    update_compile_command(config or {})
-    timer.mark('update_fortran_params')
+    build_dir = prepare_irt_build(params, config or {}, outpath)
+    print(f'Using IRT build dir: {build_dir}')
+    timer.mark('prepare_irt_build')
     dlat = float(params['lat_inc']); dlon = float(params['lon_inc'])
     if dlat >= 3. or dlon >= 3.:
         raise ValueError(f"Resolution too coarse: lat_inc={dlat}°, lon_inc={dlon}° (threshold=3°).")
@@ -291,8 +384,12 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     return ds
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="TC detection driver")
+    parser.add_argument("--case", dest="case", default=None, help="Case name override")
+    args = parser.parse_args()
+
     config = load_config() # Default: config.yaml
-    case = config.get('case')
+    case = args.case or os.environ.get('TC_CASE') or config.get('case')
     if case is None:
         raise ValueError("Missing required 'case' key in config.yaml")
     case_path = config['case_path']

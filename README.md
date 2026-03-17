@@ -40,8 +40,8 @@ Required by `TC_lifetime.py`:
 
 ### Configuration
 
-Edit `config.yaml` to specify your case, input/output paths, file patterns, and options such as vorticity sign inversion for the Southern Hemisphere.
-Currently, only a single case is supported through the singular `case` field.
+Edit `config.yaml` to specify your case or cases, input/output paths, file patterns, and options such as vorticity sign inversion for the Southern Hemisphere.
+Single-case mode can use the singular `case` field, while multi-case mode can use the `cases:` list in `config.yaml`. CLI overrides via `run.sh --case ...` or `run.sh --cases ...` are still supported.
 
 Optional runtime settings (under `runtime:`):
 
@@ -91,18 +91,42 @@ Note on environment setup: `run.sh` reads environment and module settings from `
 
 Run the workflow in two steps:
 
-1. Generate `submit.sh` from `config.yaml` (and optional CLI overrides).
+1. Generate submit script(s) from `config.yaml` (and optional CLI overrides).
 
 ```bash
 bash run.sh
 ```
 
-2. Execute the generated script via Slurm, or run it directly in shell.
+Multi-case generation examples:
+
+```bash
+# generate one script per case
+bash run.sh --cases Talim0903_gen_vary20,Talim0903_gen_vary32,Talim0903_gen_vary40
+
+# equivalent repeated flag form
+bash run.sh --case Talim0903_gen_vary20 --case Talim0903_gen_vary32 --case Talim0903_gen_vary40
+```
+
+2. Execute the generated script(s) via Slurm, or run each directly in shell.
 
 ```bash
 sbatch submit.sh
 # or
 bash submit.sh
+```
+
+For multi-case mode, `run.sh` generates `submit_<case>.sh` files. Submit all generated scripts to run cases concurrently, for example:
+
+```bash
+sbatch submit_Talim0903_gen_vary20.sh
+sbatch submit_Talim0903_gen_vary32.sh
+sbatch submit_Talim0903_gen_vary40.sh
+```
+
+You can also submit immediately while generating scripts:
+
+```bash
+bash run.sh --cases Talim0903_gen_vary20,Talim0903_gen_vary32,Talim0903_gen_vary40 --submit
 ```
 
 The generated `submit.sh` script runs three main steps:
@@ -116,6 +140,12 @@ Parallel behavior summary:
 - `tc_algorithm.py` uses time-parallel workers (`ProcessPoolExecutor`) controlled by `runtime.cpus`.
 - `utils.py` and `TC_lifetime.py` include Numba parallel kernels for selected loops.
 - `tracking/tracking2/iterate.sh` executes the Fortran tracking stages sequentially.
+
+Parallel safety note:
+
+- Tracking now uses a per-case workspace under `tracking/tracking_data_<case>/` to avoid file collisions.
+- Different grids are isolated through per-grid build caches under `tracking/build_cache/`.
+- Fortran compile/tracking stage is protected by a shared lock file (`/tmp/tc_algorithm_compile.lock` by default, configurable via `runtime.compile_lock_file`) to avoid concurrent binary/parameter races.
 
 ### Output
 

@@ -8,43 +8,35 @@
 #SBATCH --output=track0529.o%j    # File name for standard output
 #SBATCH --error=track0529.o%j     # File name for standard error output
 
-#set -ex
+set -euo pipefail
 
+DATENPFAD=${TRACKING_DATA_DIR:-${PWD}/../tracking_data}
+BIN_DIR=${TRACKING_BIN_DIR:-${PWD}}
+LOCK_FILE=${TRACKING_LOCK_FILE:-/tmp/tc_algorithm_compile.lock}
 
-DATENPFAD=${PWD}/../tracking_data
-#DATENFILE=data.nc
+mkdir -p "${DATENPFAD}"
 
-PFAD=`pwd`
+binaries_ready() {
+    [ -x "${BIN_DIR}/irt_objects_release.x" ] && \
+    [ -x "${BIN_DIR}/irt_advection_field_release.x" ] && \
+    [ -x "${BIN_DIR}/irt_tracks_release.x" ] && \
+    [ -x "${BIN_DIR}/irt_trackmask_release.x" ] && \
+    [ -x "${BIN_DIR}/irt_tracklinks_release.x" ]
+}
 
-cd $PFAD
-cp irt_parameters.f90 $DATENPFAD/
-./compile.sh
+exec 200>"${LOCK_FILE}"
+flock -x 200
+trap 'flock -u 200' EXIT
 
-cd $DATENPFAD
+if ! binaries_ready; then
+    (cd "${BIN_DIR}" && bash ./compile.sh)
+fi
 
-  ### Iterate Object Files ###
-   ${PFAD}/irt_objects_release.x 1
+cp "${BIN_DIR}/irt_parameters.f90" "${DATENPFAD}/"
+cd "${DATENPFAD}"
 
-   #${PFAD}/irt_advection_field_release.x
-   #cp irt_advection_field.srv irt_advection_field_it1.srv
-   ##  for ITERATION in 2; do
-   ##       echo iteration $ITERATION
-   ##       ${PFAD}/irt_objects_release.x 2
-   ##       ${PFAD}/irt_advection_field_release.x
-   ##       cp irt_advection_field.srv irt_advection_field_it${ITERATION}.srv
-   ##  done
-   #rm -rf irt_advection_field.srv
-   #cp irt_objects_output.txt irt_objects_output_it3.txt
-
-   ### Build Tracks ###
-   ${PFAD}/irt_tracks_release.x
-
-   ### Generate Field of Track IDs ###
-   sort -n -k2 irt_tracks_nohead_output.txt > irt_tracks_sorted.txt
-   ${PFAD}/irt_trackmask_release.x
-
-   ### add links to preceding and successing tracks to track headers
-   ${PFAD}/irt_tracklinks_release.x
-
-exit
-
+"${BIN_DIR}/irt_objects_release.x" 1
+"${BIN_DIR}/irt_tracks_release.x"
+sort -n -k2 irt_tracks_nohead_output.txt > irt_tracks_sorted.txt
+"${BIN_DIR}/irt_trackmask_release.x"
+"${BIN_DIR}/irt_tracklinks_release.x"

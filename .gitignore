@@ -9,3 +9,5 @@ tracking/tracking2/irt_tracks_release.x
 tracking/tracking_data/
 *.i90
 *.swp
+.*
+submit.sh

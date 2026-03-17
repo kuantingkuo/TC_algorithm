@@ -13,7 +13,8 @@ if [ ! -f "${CONFIG_FILE}" ]; then
 fi
 
 # Initialize defaults (avoid unbound vars later)
-RUNTIME_CONDA_ENV=""
+RUNTIME_ENV_MANAGER=""
+RUNTIME_ENV_NAME=""
 RUNTIME_MODULES=""
 RUNTIME_COMPILER=""
 RUNTIME_COMPILER_FLAGS=""
@@ -23,28 +24,31 @@ RUNTIME_PARTITION=""  # optional default Slurm partition
 CONFIG_CASE=""
 CONFIG_OUTPUT_PATH=""
 
-# Simple conda activation helper (no python fallback logic)
-ensure_conda_env() {
-    local target_env="$1"
-    [ -z "$target_env" ] && return 0
-    command -v conda >/dev/null 2>&1 || { echo "[run.sh] WARNING: conda not in PATH; skipping activation ($target_env)" >&2; return 0; }
-    if ! type -t conda >/dev/null 2>&1 || ! conda info --base >/dev/null 2>&1; then
-        if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-            # shellcheck disable=SC1091
-            . "$HOME/miniconda3/etc/profile.d/conda.sh"
-        else
-            base_dir="$(conda info --base 2>/dev/null || true)"
-            [ -n "$base_dir" ] && . "$base_dir/etc/profile.d/conda.sh" 2>/dev/null || true
-        fi
-    fi
-    local current_env
-    current_env=$(conda info --json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('active_prefix_name',''))" 2>/dev/null || echo "")
-    if [ "$current_env" != "$target_env" ]; then
-        echo "[run.sh] Activating conda env $target_env" >&2
-        conda activate "$target_env" || echo "[run.sh] WARNING: failed to activate $target_env" >&2
-    else
-        echo "[run.sh] Conda env $target_env already active" >&2
-    fi
+# Lightweight runtime validation helper for current shell.
+ensure_python_env() {
+    local env_manager="$1"
+    local env_name="$2"
+
+    case "$env_manager" in
+        ""|none|current|system)
+            return 0
+            ;;
+        conda)
+            command -v conda >/dev/null 2>&1 || { echo "[run.sh] WARNING: conda not in PATH; skipping activation (${env_name:-<none>})" >&2; return 0; }
+            ;;
+        micromamba)
+            command -v micromamba >/dev/null 2>&1 || { echo "[run.sh] WARNING: micromamba not in PATH; skipping activation (${env_name:-<none>})" >&2; return 0; }
+            ;;
+        *)
+            echo "[run.sh] WARNING: unknown env manager '$env_manager'; skipping activation" >&2
+            return 0
+            ;;
+    esac
+
+    [ -n "$env_name" ] || {
+        echo "[run.sh] WARNING: env_manager is '$env_manager' but env_name is empty; skipping activation" >&2
+        return 0
+    }
 }
 
 # Pure bash/awk extraction of required keys (no PyYAML dependency)
@@ -73,7 +77,9 @@ if [ -r "${CONFIG_FILE}" ]; then
             if(line ~ /^case:/){sub(/case:/,"",line); case_val=trim(line)}
             else if(line ~ /^output_path:/){sub(/output_path:/,"",line); out_path=trim(line)}
         } else {
-            if(line ~ /^[ ]+conda_env:/){sub(/^[ ]+conda_env:/,"",line); env=trim(line)}
+            if(line ~ /^[ ]+env_manager:/){sub(/^[ ]+env_manager:/,"",line); env_manager=trim(line)}
+            else if(line ~ /^[ ]+env_name:/){sub(/^[ ]+env_name:/,"",line); env_name=trim(line)}
+            else if(line ~ /^[ ]+conda_env:/){sub(/^[ ]+conda_env:/,"",line); legacy_conda_env=trim(line)}
             else if(line ~ /^[ ]+cpus:/){sub(/^[ ]+cpus:/,"",line); cpus=trim(line)}
             else if(line ~ /^[ ]+account:/){sub(/^[ ]+account:/,"",line); acct=trim(line)}
             else if(line ~ /^[ ]+partition:/){sub(/^[ ]+partition:/,"",line); part=trim(line)}
@@ -87,11 +93,14 @@ if [ -r "${CONFIG_FILE}" ]; then
         }
     }
     END{
+        if(env_name == "" && legacy_conda_env != "") env_name = legacy_conda_env
+        if(env_manager == "" && legacy_conda_env != "") env_manager = "conda"
         # Normalize compiler_flags; escape embedded double quotes for shell eval
         gsub(/^[ ]+|[ ]+$/,"",compiler_flags); gsub(/"/,"\\\"",compiler_flags)
-    gsub(/"/,"\\\"",env); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler); gsub(/"/,"\\\"",module_use); gsub(/"/,"\\\"",acct); gsub(/"/,"\\\"",part)
+    gsub(/"/,"\\\"",env_manager); gsub(/"/,"\\\"",env_name); gsub(/"/,"\\\"",load_modules); gsub(/"/,"\\\"",compiler); gsub(/"/,"\\\"",module_use); gsub(/"/,"\\\"",acct); gsub(/"/,"\\\"",part)
         gsub(/"/,"\\\"",cpus); gsub(/"/,"\\\"",case_val); gsub(/"/,"\\\"",out_path)
-        print "RUNTIME_CONDA_ENV=\"" env "\""
+        print "RUNTIME_ENV_MANAGER=\"" env_manager "\""
+        print "RUNTIME_ENV_NAME=\"" env_name "\""
         print "RUNTIME_MODULES=\"" load_modules "\""
         print "RUNTIME_COMPILER=\"" compiler "\""
         print "RUNTIME_COMPILER_FLAGS=\"" compiler_flags "\""
@@ -112,6 +121,10 @@ load_modules() {
     local modules_line="$1"
     if [ -z "$modules_line" ]; then
         echo "[run.sh] No modules to load" >&2
+        return 0
+    fi
+    if ! type -t module >/dev/null 2>&1; then
+        echo "[run.sh] WARNING: module command not available; skipping module load" >&2
         return 0
     fi
     # Purge first for a clean state
@@ -149,7 +162,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "[run.sh] Modules: ${RUNTIME_MODULES:-<none>}" >&2
-echo "[run.sh] Conda env: ${RUNTIME_CONDA_ENV:-<none>}" >&2
+echo "[run.sh] Env manager: ${RUNTIME_ENV_MANAGER:-<none>}" >&2
+echo "[run.sh] Env name: ${RUNTIME_ENV_NAME:-<none>}" >&2
 echo "[run.sh] Case: ${CONFIG_CASE:-<none>}" >&2
 echo "[run.sh] Output path: ${CONFIG_OUTPUT_PATH:-<none>}" >&2
 echo "[run.sh] Runtime cpus (config): ${RUNTIME_CPUS:-<none>}" >&2
@@ -198,43 +212,99 @@ fi
     echo "set -euo pipefail"
     echo "SCRIPT_DIR=\"\$(cd \"\$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\""
     echo "CONFIG_FILE=\"${CONFIG_FILE}\""
-    echo "RUNTIME_CONDA_ENV=\"${RUNTIME_CONDA_ENV}\""
+    echo "RUNTIME_ENV_MANAGER=\"${RUNTIME_ENV_MANAGER}\""
+    echo "RUNTIME_ENV_NAME=\"${RUNTIME_ENV_NAME}\""
     echo "RUNTIME_MODULES=\"${RUNTIME_MODULES}\""
     echo "RUNTIME_MODULE_USE=\"${RUNTIME_MODULE_USE}\""
     echo "RUNTIME_ACCOUNT=\"${RUNTIME_ACCOUNT}\""
     echo "RUNTIME_PARTITION=\"${RUNTIME_PARTITION}\""
-    echo 'ensure_conda_env() {'
-    echo '  local target_env="$1"'
-    echo '  [ -z "$target_env" ] && return 0'
-    echo '  if ! type -t conda >/dev/null 2>&1; then return 0; fi'
-    echo '  __conda_setup="$(conda shell.bash hook 2>/dev/null)" || true'
-    echo '  [ -n "${__conda_setup}" ] && eval "${__conda_setup}"'
-    echo '  if ! conda activate "$target_env" >/dev/null 2>&1; then'
-    echo '    # Retry noisy (do not fail job immediately; caller can decide)'
-    echo '    if ! conda activate "$target_env"; then'
-    echo '      echo "[submit][WARN] Failed to activate conda env $target_env" >&2'
-    echo '      return 1'
-    echo '    fi'
-    echo '  fi'
-    echo '  return 0'
+    echo 'module_available() {'
+    echo '  type -t module >/dev/null 2>&1'
     echo '}'
-    echo 'load_modules() { local modules_line="$1"; [ -z "$modules_line" ] && return 0; module purge || true; for m in $modules_line; do module load "$m"; done; }'
+    echo 'activate_python_env() {'
+    echo '  local env_manager="$1"'
+    echo '  local env_name="$2"'
+    echo '  case "$env_manager" in'
+    echo '    ""|none|current|system)'
+    echo '      echo "[submit] Using current shell Python environment"'
+    echo '      return 0'
+    echo '      ;;'
+    echo '    conda)'
+    echo '      if ! command -v conda >/dev/null 2>&1; then'
+    echo '        echo "[submit][WARN] conda not available; skipping activation for ${env_name:-<none>}" >&2'
+    echo '        return 0'
+    echo '      fi'
+    echo '      [ -n "$env_name" ] || { echo "[submit][WARN] env_name is empty for conda; skipping activation" >&2; return 0; }'
+    echo '      __conda_setup="$(conda shell.bash hook 2>/dev/null)" || true'
+    echo '      if [ -z "${__conda_setup}" ]; then'
+    echo '        base_dir="$(conda info --base 2>/dev/null || true)"'
+    echo '        [ -n "$base_dir" ] && [ -f "$base_dir/etc/profile.d/conda.sh" ] && . "$base_dir/etc/profile.d/conda.sh"'
+    echo '      else'
+    echo '        eval "${__conda_setup}"'
+    echo '      fi'
+    echo '      if ! conda activate "$env_name" >/dev/null 2>&1; then'
+    echo '        if ! conda activate "$env_name"; then'
+    echo '          echo "[submit][WARN] Failed to activate conda env $env_name" >&2'
+    echo '          return 1'
+    echo '        fi'
+    echo '      fi'
+    echo '      echo "[submit] Activated conda env: $env_name"'
+    echo '      return 0'
+    echo '      ;;'
+    echo '    micromamba)'
+    echo '      if ! command -v micromamba >/dev/null 2>&1; then'
+    echo '        echo "[submit][WARN] micromamba not available; skipping activation for ${env_name:-<none>}" >&2'
+    echo '        return 0'
+    echo '      fi'
+    echo '      [ -n "$env_name" ] || { echo "[submit][WARN] env_name is empty for micromamba; skipping activation" >&2; return 0; }'
+    echo '      __micromamba_setup="$(micromamba shell hook --shell bash 2>/dev/null)" || true'
+    echo '      [ -n "${__micromamba_setup}" ] && eval "${__micromamba_setup}"'
+    echo '      if ! micromamba activate "$env_name" >/dev/null 2>&1; then'
+    echo '        if ! micromamba activate "$env_name"; then'
+    echo '          echo "[submit][WARN] Failed to activate micromamba env $env_name" >&2'
+    echo '          return 1'
+    echo '        fi'
+    echo '      fi'
+    echo '      echo "[submit] Activated micromamba env: $env_name"'
+    echo '      return 0'
+    echo '      ;;'
+    echo '    *)'
+    echo '      echo "[submit][WARN] Unknown env manager: $env_manager; using current shell environment" >&2'
+    echo '      return 0'
+    echo '      ;;'
+    echo '  esac'
+    echo '}'
+    echo 'load_modules() {'
+    echo '  local modules_line="$1"'
+    echo '  [ -z "$modules_line" ] && return 0'
+    echo '  if ! module_available; then'
+    echo '    echo "[submit][WARN] module command not available; skipping module load" >&2'
+    echo '    return 0'
+    echo '  fi'
+    echo '  module purge || true'
+    echo '  for m in $modules_line; do module load "$m"; done'
+    echo '}'
     echo 'echo "[submit] Starting job on $(date)"'
-    echo 'module purge || true'
-    echo '[ -n "${RUNTIME_MODULE_USE}" ] && echo "[submit] module use ${RUNTIME_MODULE_USE}" && module use "${RUNTIME_MODULE_USE}"'
-    echo 'set +u  # allow conda hook to reference unset vars'
-    echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
+    echo 'if module_available; then module purge || true; fi'
+    echo 'if [ -n "${RUNTIME_MODULE_USE}" ]; then'
+    echo '  if module_available; then'
+    echo '    echo "[submit] module use ${RUNTIME_MODULE_USE}"'
+    echo '    module use "${RUNTIME_MODULE_USE}"'
+    echo '  else'
+    echo '    echo "[submit][WARN] module use requested but module command is unavailable" >&2'
+    echo '  fi'
+    echo 'fi'
+    echo 'set +u  # allow environment hooks to reference unset vars'
+    echo 'activate_python_env "${RUNTIME_ENV_MANAGER}" "${RUNTIME_ENV_NAME}"'
     echo 'set -u'
-    echo 'echo "[submit] Activated conda env: ${RUNTIME_CONDA_ENV}"'
     echo 'python "${SCRIPT_DIR}/tc_algorithm.py"'
     echo 'load_modules "${RUNTIME_MODULES}"'
     echo 'echo "[submit] Loaded modules: ${RUNTIME_MODULES}"'
     echo '( cd "${SCRIPT_DIR}" && ./tracking.sh )'
-    echo 'module purge || true'
+    echo 'if module_available; then module purge || true; fi'
     echo 'set +u'
-    echo 'ensure_conda_env "${RUNTIME_CONDA_ENV}"'
+    echo 'activate_python_env "${RUNTIME_ENV_MANAGER}" "${RUNTIME_ENV_NAME}"'
     echo 'set -u'
-    echo 'echo "[submit] Re-activated conda env: ${RUNTIME_CONDA_ENV}"'
     echo 'python "${SCRIPT_DIR}/TC_lifetime.py"'
     echo 'echo "[submit] Finished at $(date)"'
 } > "$SUBMIT_FILE"

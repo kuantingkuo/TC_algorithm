@@ -1,11 +1,12 @@
-case: f02.F2000.Tai-Talim.su11
-case_path: /data/W.eddie/SPCAM/
+case: Talim0903_gen_vary8
+case_path: /data3/SPCAM/
 output_path: /data/W.eddie/track_output/
 file_pattern: cam.h1.*.nc
 invert_vorticity_SH: True
 runtime:
-  conda_env: forge
-  cpus: 16
+  env_manager: micromamba
+  env_name: base
+  cpus: 10
   account:
   partition:
   module_use:

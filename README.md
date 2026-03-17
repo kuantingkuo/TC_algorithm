@@ -23,18 +23,32 @@ Fortran compiler (for the tracking code) with NetCDF library support
 
 ### Input Files
 
-The input NetCDF files are primarily designed for CESM output and should include the following variables: **`U`**, **`V`**, **`PS`**, **`SST`**, `U850`, `V850`, `PSL`, `T`, `Q`, and `Z3`.
+The input NetCDF files are primarily designed for CESM output.
+
+Required by `tc_algorithm.py`:
+
+- `U`, `V`, `PS`, `T`, `Q`, `Z3`, `hyam`, `hybm`, `P0`
+
+Optional in `tc_algorithm.py` (computed if missing):
+
+- `U850`, `V850` (derived from `U`/`V`)
+- `PSL` (derived from low-level thermodynamic fields)
+
+Required by `TC_lifetime.py`:
+
+- `SST` or `TS`
 
 ### Configuration
 
-Edit `config.yaml` to specify your cases, input/output paths, file patterns, and options such as vorticity sign inversion for the Southern Hemisphere.
-Currently, the `cases` field supports only a single case at a time.
+Edit `config.yaml` to specify your case, input/output paths, file patterns, and options such as vorticity sign inversion for the Southern Hemisphere.
+Currently, only a single case is supported through the singular `case` field.
 
-Optional HPC environment settings (under `runtime:`):
+Optional runtime settings (under `runtime:`):
 
-- `conda_env`: Name of conda environment to activate.
+- `env_manager`: Python environment manager to use in generated `submit.sh`. Supported values are `conda`, `micromamba`, and `none`.
+- `env_name`: Environment name to activate when `env_manager` is `conda` or `micromamba`. Use `base` if that machine keeps packages in the base environment.
 - `cpus`: Logical CPU count used for time-parallel detection.
-- `module_use`: (New) A modulefiles directory path to prepend via `module use <path>` before any `module load` statements. If empty or omitted, no `module use` line is emitted.
+- `module_use`: A modulefiles directory path to prepend via `module use <path>` before any `module load` statements. If empty or omitted, no `module use` line is emitted.
 - `account`: Default Slurm account to use if `--account` not passed to `run.sh`.
 - `partition`: Default Slurm partition to use if `--partition` not passed.
 - `load_modules`: List of modules to load (after optional `module use`).
@@ -43,14 +57,14 @@ Optional HPC environment settings (under `runtime:`):
 Example:
 
 ```yaml
-cases:
-  - F2000
+case: F2000
 case_path: /data/User/archive/
 output_path: /data/User/track_output/
 file_pattern: cam.h0.*.nc
 invert_vorticity_SH: true
 runtime:
-  conda_env: myenv
+  env_manager: conda
+  env_name: myenv
   cpus: 32
   module_use: /home/user/custom/modulefiles
   account: proj1234
@@ -64,28 +78,44 @@ runtime:
 
 ### Workflow Overview
 
-Before beginning, ensure that your environment and required modules are set up correctly. Pay particular attention to these two files:
+Before beginning, ensure your environment and required modules are set up correctly. Pay particular attention to these two files:
 
 - `run.sh`
 - `tracking/tracking2/compile.sh`
 
-Note on environment setup: `run.sh` uses Conda (for example, `conda activate <env>`) and HPC environment modules (for example, `module load ...`) to configure the software environment. Please edit those lines to match your system (environment name, module names/versions), or replace them with your preferred activation commands. If your system does not use Environment Modules, you can remove the `module` lines and ensure required packages are available in your active Python environment.
+Note on environment setup: `run.sh` reads environment and module settings from `config.yaml` under `runtime:` and emits them into `submit.sh`. In most cases, update `config.yaml` rather than editing `run.sh` directly. If your system does not use Environment Modules, keep `runtime.load_modules` empty. If your Python environment is already active before submission, use `env_manager: none`.
 
 `tracking/tracking2/compile.sh` assumes Intel ifort and a specific NetCDF installation (include/lib paths embedded in `COMPILE_COMMAND`). Edit `COMPILE_COMMAND` to match your compiler (e.g., ifort, gfortran) and your NetCDF Fortran include and library paths on your system.
   
-### Run through the tracking algorithm
+### Run the tracking algorithm
 
-To execute the tracking algorithm, run the `run.sh` script.
+Run the workflow in two steps:
+
+1. Generate `submit.sh` from `config.yaml` (and optional CLI overrides).
 
 ```bash
 bash run.sh
 ```
 
-The `run.sh` script consists of three main steps:
+2. Execute the generated script via Slurm, or run it directly in shell.
+
+```bash
+sbatch submit.sh
+# or
+bash submit.sh
+```
+
+The generated `submit.sh` script runs three main steps:
 
 1. `tc_algorithm.py`: Identifies all potential TC grid points for each time snapshot.
 2. `tracking.sh`: Links detected objects and tracks them over time.
 3. `TC_lifetime.py`: Filters TC-like objects based on their lifetime and sea surface temperature (SST).
+
+Parallel behavior summary:
+
+- `tc_algorithm.py` uses time-parallel workers (`ProcessPoolExecutor`) controlled by `runtime.cpus`.
+- `utils.py` and `TC_lifetime.py` include Numba parallel kernels for selected loops.
+- `tracking/tracking2/iterate.sh` executes the Fortran tracking stages sequentially.
 
 ### Output
 

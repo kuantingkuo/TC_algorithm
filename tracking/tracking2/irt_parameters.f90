@@ -1,14 +1,14 @@
 MODULE irt_parameters
 ! grid information
-INTEGER, PARAMETER    :: domainsize_x = 1152
-INTEGER, PARAMETER    :: domainsize_y = 768
+INTEGER, PARAMETER    :: domainsize_x = 288
+INTEGER, PARAMETER    :: domainsize_y = 192
 
 LOGICAL, PARAMETER    :: llonlatgrid = .TRUE.
 REAL, PARAMETER       :: unit_area = 10000. ! in 1degx1deg -> about 10000.km2
 ! only used if llonlatgrid=.TRUE., otherwise set to arbitrary value:
 REAL, PARAMETER       :: lat_first = -90.0000000
-REAL, PARAMETER       :: lat_inc = 0.234680574
-REAL, PARAMETER       :: lon_inc = 0.3125000
+REAL, PARAMETER       :: lat_inc = 0.942408377
+REAL, PARAMETER       :: lon_inc = 1.2500000
 
 LOGICAL, PARAMETER    :: lperiodic_x = .TRUE.
 LOGICAL, PARAMETER    :: lperiodic_y = .FALSE.
@@ -17,7 +17,7 @@ LOGICAL, PARAMETER    :: lpole = .TRUE.
 INTEGER, PARAMETER    :: n_fields = 0   ! number of additional averaging
 
 ! bins of coarse velocity field
-INTEGER, PARAMETER    :: time_steps = 1
+INTEGER, PARAMETER    :: time_steps = 241
 INTEGER, PARAMETER    :: nt_bins = 24         ! 24 hours
 INTEGER, PARAMETER    :: nx_bins = 1
 INTEGER, PARAMETER    :: ny_bins = 1

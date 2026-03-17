@@ -1,6 +1,8 @@
 import numpy as np
 import xarray as xr
 import numba
+import argparse
+import os
 from time import ctime
 from utils import load_config, StepTimer
 
@@ -173,8 +175,12 @@ ENDVARS
     return
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="TC lifetime filtering")
+    parser.add_argument("--case", dest="case", default=None, help="Case name override")
+    args = parser.parse_args()
+
     config = load_config()
-    case = config.get('case')
+    case = args.case or os.environ.get('TC_CASE') or config.get('case')
     if case is None:
         raise ValueError("Missing required 'case' key in config.yaml")
     case_path = config['case_path']

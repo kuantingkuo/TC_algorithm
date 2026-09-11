@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 from tcflow.config import ROOT, resolve, write
 from tcflow.__main__ import check_python_dependencies
+from tcflow.build import ordered_link_flags, toolchain
 from tcflow.inputs import open_input, validate, file_manifest
 from tcflow.workflow import prepare, generate_job, execute
 
@@ -93,6 +94,37 @@ def test_cli_overrides_all_stages(tmp_path):
     cfg = resolve([path], {'runtime': {'cpus': 3}, 'scheduler': {'account': 'mine'}})
     assert cfg['runtime']['cpus'] == 3
     assert cfg['scheduler']['account'] == 'mine'
+
+
+def test_netcdf_fortran_and_c_link_flags_are_combined(monkeypatch):
+    responses = {
+        'command -v ifort': '/compiler/bin/ifort',
+        'ifort --version': 'ifort test version',
+        'nf-config --all': 'NetCDF-Fortran test configuration',
+        'nf-config --fflags': '-I/netcdf-fortran/include',
+        'nf-config --flibs': '-L/netcdf-fortran/lib -lnetcdff -lnetcdf',
+        'command -v nc-config': '/netcdf-c/bin/nc-config',
+        'nc-config --all': 'NetCDF-C test configuration',
+        'nc-config --libs': '-L/netcdf-c/lib -lnetcdf -lm',
+    }
+
+    def shell(runtime, command, cwd=None):
+        return responses[command]
+
+    monkeypatch.setattr('tcflow.build.shell', shell)
+    result = toolchain({'compiler': 'ifort', 'compiler_flags': '-O2'})
+    assert result['libraries'] == [
+        '-L/netcdf-fortran/lib', '-L/netcdf-c/lib',
+        '-lnetcdff', '-lnetcdf', '-lnetcdf', '-lm',
+    ]
+    assert result['nc_config_path'] == '/netcdf-c/bin/nc-config'
+
+
+def test_link_search_paths_precede_libraries():
+    assert ordered_link_flags(
+        ['-L/fortran', '-lnetcdff', '-lnetcdf'],
+        ['-L', '/c', '-lnetcdf', '-lm'],
+    ) == ['-L/fortran', '-L/c', '-lnetcdff', '-lnetcdf', '-lnetcdf', '-lm']
 
 
 def test_run_collision_and_input_mutation(dataset):

@@ -34,6 +34,7 @@ runtime:
     -free
     -heap-arrays 10
   nf_config: nf-config
+  nc_config: nc-config
 
 scheduler:
   backend: slurm

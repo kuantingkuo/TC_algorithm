@@ -35,6 +35,7 @@ runtime:
   compiler: ifx
   compiler_flags: null  # compiler-specific conservative defaults
   nf_config: nf-config
+  nc_config: nc-config
   module_purge: true
   load_modules:
     - YOUR_COMPILER_MODULE
@@ -58,6 +59,9 @@ for building and tracking. Both compiler and NetCDF Fortran must be compatible;
 a GNU compiler cannot use an Intel-built `netcdf.mod`. `doctor` verifies an actual
 NetCDF Fortran compile/link/run and a direct-access binary roundtrip. No environment
 activation or module-load failure silently falls back to another installation.
+The build combines `nf-config --flibs` with `nc-config --libs`, placing both library
+search paths before the link libraries. This supports module stacks where
+`nf-config` omits the NetCDF-C `-L` path.
 
 The launcher discards inherited `PYTHONPATH` and `PYTHONHOME`, and disables the user
 site directory before entering `forge`. This prevents F1/Spack Python 3.10 packages

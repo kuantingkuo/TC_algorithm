@@ -11,6 +11,7 @@ runtime:
   compiler: null
   compiler_flags: null
   nf_config: nf-config
+  nc_config: nc-config
 scheduler:
   backend: slurm
   account: null

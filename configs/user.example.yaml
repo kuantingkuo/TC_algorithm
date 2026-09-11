@@ -5,6 +5,8 @@ runtime:
   cpus: 8
   # compiler: ifx
   # load_modules: [your-compiler-module, your-compatible-netcdf-fortran-module]
+  # nf_config: nf-config
+  # nc_config: nc-config
   # scratch_root: /absolute/path/to/scratch
   # irt_build_cache_root: /absolute/path/to/shared/build-cache
 scheduler:

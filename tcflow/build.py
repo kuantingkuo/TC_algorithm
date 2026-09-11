@@ -41,6 +41,27 @@ def shell(runtime, command, cwd=None):
     return result.stdout.strip()
 
 
+def ordered_link_flags(*groups):
+    """Place all library search paths before libraries, preserving link order."""
+    search_paths = []
+    libraries = []
+    for group in groups:
+        tokens = list(group)
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token == '-L' and index + 1 < len(tokens):
+                token = '-L' + tokens[index + 1]
+                index += 1
+            if token.startswith('-L'):
+                if token not in search_paths:
+                    search_paths.append(token)
+            else:
+                libraries.append(token)
+            index += 1
+    return search_paths + libraries
+
+
 def toolchain(runtime):
     fc = runtime.get('compiler')
     if not fc:
@@ -50,7 +71,22 @@ def toolchain(runtime):
     compiler_version = shell(runtime, shlex.join([fc, '--version']))
     nf_info = shell(runtime, shlex.join([nf, '--all']))
     include = shlex.split(shell(runtime, shlex.join([nf, '--fflags'])))
-    libraries = shlex.split(shell(runtime, shlex.join([nf, '--flibs'])))
+    nf_libraries = shlex.split(shell(runtime, shlex.join([nf, '--flibs'])))
+
+    # Some packaged nf-config files include -lnetcdf but omit NetCDF-C's -L
+    # directory. Add nc-config's link flags and move all search paths before
+    # the libraries so the linker can resolve both netcdff and netcdf.
+    nc = runtime.get('nc_config', 'nc-config')
+    try:
+        nc_path = shell(runtime, 'command -v ' + shlex.quote(nc))
+    except RuntimeError:
+        nc_path = None
+        nc_info = None
+        nc_libraries = []
+    else:
+        nc_info = shell(runtime, shlex.join([nc, '--all']))
+        nc_libraries = shlex.split(shell(runtime, shlex.join([nc, '--libs'])))
+    libraries = ordered_link_flags(nf_libraries, nc_libraries)
     flags = runtime.get('compiler_flags')
     if flags is None:
         name = Path(fc).name
@@ -63,7 +99,8 @@ def toolchain(runtime):
     if isinstance(flags, str):
         flags = shlex.split(flags)
     return dict(compiler=fc, compiler_path=compiler_path, compiler_version=compiler_version,
-                flags=flags, includes=include, libraries=libraries, netcdf=nf_info,
+                flags=flags, includes=include, libraries=libraries,
+                netcdf_fortran=nf_info, netcdf_c=nc_info, nc_config_path=nc_path,
                 platform=platform.platform(), machine=platform.machine(),
                 modules=runtime.get('load_modules', []))
 

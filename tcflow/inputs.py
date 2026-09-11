@@ -18,8 +18,12 @@ def discover(cfg, case, kind='atmosphere'):
     if not isinstance(spec, list) or not spec:
         raise ValueError(f'dataset.{kind} must be a pattern or nonempty list')
     files = []
+    initialization = cfg.get('initialization', '')
     for pattern in spec:
-        expanded = os.path.expandvars(pattern.format(root=cfg.get('case_path', ''), case=case))
+        expanded = os.path.expandvars(pattern.format(
+            root=cfg.get('case_path', ''), case=case,
+            initialization=initialization,
+        ))
         matches = sorted(glob.glob(os.path.expanduser(expanded)))
         if not matches:
             raise FileNotFoundError(f'No {kind} files match {expanded}')
@@ -114,4 +118,6 @@ def validate(cfg, case):
             raise ValueError(f'Calendar {calendar} needs explicit CTL support')
         return {'case': case, 'sizes': dict(atmosphere.sizes), 'calendar': calendar,
                 'start': str(times[0]), 'end': str(times[-1]), 'interval_hours': 1,
-                'sst_field': field, 'variables': sorted(atmosphere.data_vars)}
+                'sst_field': field, 'variables': sorted(atmosphere.data_vars),
+                **({'initialization': cfg['initialization']}
+                   if cfg.get('initialization') else {})}

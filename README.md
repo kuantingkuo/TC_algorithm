@@ -48,7 +48,8 @@ logs and output checksums. Resume with `bash run.sh execute --run /path/to/run`.
 A Slurm run must be resumed inside its allocation or by resubmitting its generated
 job script.
 
-Results are under `output_path/<case>/<run_id>/results/<case>/`:
+Results are under
+`output_path/<case>/[<initialization>/]<run_id>/results/<case>/`:
 
 - `<case>.TC.nc`: intermediate detection features and candidate mask.
 - `irt_objects_*`, `irt_tracks_*`, `irt_tracklinks_output.txt`: IRT objects and tracks.

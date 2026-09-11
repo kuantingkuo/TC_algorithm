@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from copy import deepcopy
 from .config import ROOT, resolve
 
 
@@ -47,6 +48,13 @@ def configuration(args):
         cases.extend(c.strip() for c in args.cases.split(',') if c.strip())
     if cases:
         overrides['cases'] = cases
+    initializations = args.initialization or []
+    if args.initializations:
+        initializations.extend(
+            value.strip() for value in args.initializations.split(',') if value.strip()
+        )
+    if initializations:
+        overrides['initializations'] = initializations
     if args.cpus is not None:
         overrides['runtime']['cpus'] = args.cpus
     for key in ('account', 'partition', 'time', 'memory', 'backend'):
@@ -56,6 +64,22 @@ def configuration(args):
     if args.output_path:
         overrides['output_path'] = args.output_path
     return resolve(paths, overrides)
+
+
+def execution_targets(cfg):
+    """Return independent case/initialization combinations."""
+    initializations = cfg.get('initializations') or [None]
+    return [(case, initialization)
+            for case in cfg['cases'] for initialization in initializations]
+
+
+def target_config(cfg, initialization):
+    scoped = deepcopy(cfg)
+    if initialization is None:
+        scoped.pop('initialization', None)
+    else:
+        scoped['initialization'] = initialization
+    return scoped
 
 
 def main():
@@ -70,6 +94,8 @@ def main():
         p.add_argument('--user-config')
         p.add_argument('--case', action='append')
         p.add_argument('--cases')
+        p.add_argument('--initialization', action='append')
+        p.add_argument('--initializations')
         p.add_argument('--cpus', type=int)
         p.add_argument('--account')
         p.add_argument('--partition')
@@ -99,7 +125,10 @@ def main():
     cfg = configuration(args)
     if args.command == 'inspect-input':
         from .inputs import validate
-        print(json.dumps([validate(cfg, c) for c in cfg['cases']], indent=2))
+        print(json.dumps([
+            validate(target_config(cfg, initialization), case)
+            for case, initialization in execution_targets(cfg)
+        ], indent=2))
     elif args.command == 'doctor':
         from .build import toolchain, binary_roundtrip, shell
         import shlex
@@ -134,7 +163,10 @@ def main():
             raise ValueError('--submit requires --backend slurm')
         if args.command == 'run' and cfg['scheduler']['backend'] == 'slurm' and not args.submit:
             raise ValueError('Use prepare for Slurm script generation, or run --submit')
-        runs = [prepare(cfg, case, args.run_id) for case in cfg['cases']]
+        runs = [
+            prepare(cfg, case, args.run_id, initialization)
+            for case, initialization in execution_targets(cfg)
+        ]
         script = generate_job(cfg, runs)
         print(f'Job script: {script}', flush=True)
         for run in runs:

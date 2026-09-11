@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import xarray as xr
 from tcflow.config import ROOT, resolve, write
-from tcflow.__main__ import check_python_dependencies
+from tcflow.__main__ import check_python_dependencies, execution_targets
 from tcflow.build import ordered_link_flags, toolchain
 from tcflow.inputs import open_input, validate, file_manifest
 from tcflow.workflow import prepare, generate_job, execute
@@ -260,6 +260,31 @@ def test_hpc_profiles_select_netcdf_preprocessing(dataset):
     for site in ('forerunner1', 'taiwania3'):
         result = resolve([ROOT / 'config.yaml', ROOT / 'configs' / 'sites' / f'{site}.yaml'])
         assert result['runtime']['preproc_format'] == 'netcdf'
+
+
+def test_f1_hindcasts_expand_to_independent_targets():
+    cfg = resolve([
+        ROOT / 'config.yaml',
+        ROOT / 'configs' / 'sites' / 'forerunner1.yaml',
+    ])
+    targets = execution_targets(cfg)
+    assert len(targets) == 12
+    assert ('f02.F2000.Tai-Talim.CAPT.hi01', 'hist.0907') in targets
+    assert ('f02.F2000.Tai-Talim-UP.CAPT.hi11', 'hist.0912') in targets
+    assert cfg['dataset']['atmosphere'] == (
+        '{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc'
+    )
+
+
+def test_hindcast_initializations_have_isolated_run_directories(dataset):
+    _, cfg = dataset
+    first = prepare(cfg, 'sample', 'same-run-id', 'hist.0907')
+    second = prepare(cfg, 'sample', 'same-run-id', 'hist.0908')
+    assert first == Path(cfg['output_path']) / 'sample' / 'hist.0907' / 'same-run-id'
+    assert second == Path(cfg['output_path']) / 'sample' / 'hist.0908' / 'same-run-id'
+    assert first != second
+    assert resolve([first / 'resolved_config.yaml'])['initializations'] == ['hist.0907']
+    assert (first / 'input_report.json').read_text().find('hist.0907') >= 0
 
 
 @pytest.mark.parametrize('value', [0, -1, True, 1.5, None])

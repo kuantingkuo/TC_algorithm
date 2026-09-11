@@ -46,11 +46,18 @@ def package_versions():
     return versions
 
 
-def prepare(cfg, case, run_id=None):
+def prepare(cfg, case, run_id=None, initialization=None):
     from copy import deepcopy
     cfg = deepcopy(cfg)
+    if initialization is not None:
+        cfg['initialization'] = safe_name(initialization)
+    initialization = cfg.get('initialization')
+    cfg['initializations'] = [initialization] if initialization else []
     run_id = safe_name(run_id or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8])
-    run_dir = Path(cfg['output_path']) / case / run_id
+    run_dir = Path(cfg['output_path']) / case
+    if initialization:
+        run_dir = run_dir / safe_name(initialization)
+    run_dir = run_dir / run_id
     if run_dir.exists():
         raise FileExistsError(f'Run already exists: {run_dir}; use execute --run to resume')
     manifest = file_manifest(cfg, case)

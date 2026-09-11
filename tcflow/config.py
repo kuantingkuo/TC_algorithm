@@ -14,6 +14,7 @@ DEFAULTS = {
     'scheduler': {'backend': 'local', 'time': '08:00:00',
                   'memory': '16G', 'array_limit': 1},
     'dataset': {'adapter': 'cesm_hybrid', 'rename': {}},
+    'initializations': [],
     'invert_vorticity_SH': True,
 }
 
@@ -62,6 +63,12 @@ def resolve(paths, overrides=None):
     cfg['cases'] = list(dict.fromkeys(safe_name(c) for c in cfg['cases']))
     if not cfg['cases']:
         raise ValueError('Set case or cases')
+    initializations = cfg.get('initializations') or []
+    if not isinstance(initializations, list):
+        raise ValueError('initializations must be a list')
+    cfg['initializations'] = list(dict.fromkeys(
+        safe_name(value) for value in initializations
+    ))
     rt = cfg['runtime']
     if not re.fullmatch(r'[1-9][0-9]*', str(rt['cpus'])):
         raise ValueError('runtime.cpus must be a positive integer')

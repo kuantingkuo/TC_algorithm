@@ -12,9 +12,9 @@ The merge order is built-in defaults, `--config` (legacy `config.yaml` by defaul
 `--site` (`local` by default), `--dataset`, `--experiment`, `--user-config`, then CLI
 overrides. Nested mappings merge; lists replace. A `null` explicitly clears a value.
 Relative paths resolve from the preparation command's working directory. Use absolute
-paths in shared deployment configurations. `{root}` and `{case}` are supported in
-input patterns; `{root}` is `case_path`. Environment variables are expanded in input
-and runtime directory paths at preparation time.
+paths in shared deployment configurations. `{root}`, `{case}` and `{initialization}`
+are supported in input patterns; `{root}` is `case_path`. Environment variables are
+expanded in input and runtime directory paths at preparation time.
 
 The local site keeps compiler/modules from your base configuration and selects
 Conda `forge`. The bundled F1 profile contains this project's current case, paths,
@@ -106,6 +106,23 @@ Pressure fields are in Pa, temperature in K, wind in m/s and Z3 is height in m.
 Missing-value behavior and all detection thresholds remain in the original science
 functions. New input encodings need scientific review, not a silent conversion.
 
+Independent hindcast initializations must be listed explicitly instead of matching
+all initialization directories with one wildcard. The workflow forms the Cartesian
+product of `cases` and `initializations`; each combination receives a separate input
+validation, run directory, detection, tracking and lifetime calculation. For example:
+
+```yaml
+cases: [experiment-control, experiment-up]
+initializations: [hist.0907, hist.0908]
+dataset:
+  atmosphere: '{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc'
+```
+
+This produces four independent runs under
+`output/<case>/<initialization>/<run_id>/`. It does not concatenate timestamps from
+different initializations. Within one initialization, all files matching its pattern
+still form that hindcast's continuous time series.
+
 Optional `time_range: [start, end]` is an explicit, inclusive decoded-time selection
 used by all stages. It never appears automatically to shorten an experiment.
 At least two timestamps are needed to check sampling; meaningful lifetime validation
@@ -138,7 +155,7 @@ sbatch /printed/path/to/job.sh
 # Immediate submission is explicit.
 bash run.sh prepare --site taiwania3 --user-config /path/to/t3.yaml --submit
 
-# Multiple cases use a job array under Slurm; local execution is sequential.
+# Multiple cases/initializations use a job array under Slurm; local execution is sequential.
 bash run.sh prepare --site forerunner1 --user-config /path/to/f1.yaml \
   --cases case_a,case_b --cpus 8
 
@@ -149,14 +166,14 @@ bash run.sh execute --run /output/case/run_id
 `bash run.sh` without a command means `prepare`. It no longer overwrites a tracked
 `submit.sh` or creates `submit_<case>.sh` in the repository. Use the printed generated
 script path. Old `submit.sh` files are not the new entry point. CLI `--case`,
-`--cases`, `--cpus`, `--account`, `--partition` and `--time` are retained. Old
+`--cases`, `--initializations`, `--cpus`, `--account`, `--partition` and `--time` are retained. Old
 `--python-cmd`, `--output-prefix` and `--job-name` flags have been replaced by explicit
 runtime settings and `scheduler.job_name`.
 
 Each run has:
 
 ```text
-output/<case>/<run_id>/
+output/<case>/[<initialization>/]<run_id>/
   resolved_config.yaml
   input_manifest.json
   input_report.json
@@ -198,7 +215,8 @@ POSIX locking. Choose a filesystem with working advisory locks. Never use node-l
 
 ## Parallel execution
 
-Each case uses one Slurm task on one node with `cpus-per-task` worker capacity.
+Each case/initialization combination uses one Slurm task on one node with
+`cpus-per-task` worker capacity.
 Detection uses processes across time, with inner Numba/BLAS/OpenMP threading capped
 at one. Lifetime can use the allocated Numba threads. The configured worker count
 must fit `SLURM_CPUS_PER_TASK`. Arrays distribute independent cases across nodes;

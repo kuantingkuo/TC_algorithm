@@ -3,6 +3,13 @@
 cases:
   - f02.F2000.Tai-Talim.CAPT.hi01
   - f02.F2000.Tai-Talim-UP.CAPT.hi11
+initializations:
+  - hist.0907
+  - hist.0908
+  - hist.0909
+  - hist.0910
+  - hist.0911
+  - hist.0912
 case_path: /work1/j07hcl00/taiesm_work/archive
 output_path: /work1/eddie7824/track_output
 file_pattern: "cam.h1.*.nc"
@@ -10,9 +17,9 @@ invert_vorticity_SH: true
 
 dataset:
   adapter: cesm_hybrid
-  # Each experiment stores daily history files under atm/hist.0907 ... hist.0912.
+  # Each directory is an independent hindcast initialization.
   # Select h1 explicitly; h2 contains flux diagnostics on overlapping timestamps.
-  atmosphere: "{root}/{case}/atm/hist.*/{case}.cam.h1.*.nc"
+  atmosphere: "{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc"
   rename: {}
 
 runtime:

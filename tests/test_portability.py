@@ -11,7 +11,7 @@ import xarray as xr
 from tcflow.config import ROOT, resolve, write
 from tcflow.__main__ import check_python_dependencies, execution_targets
 from tcflow.build import ordered_link_flags, toolchain
-from tcflow.inputs import open_input, validate, file_manifest
+from tcflow.inputs import discover, open_input, validate, file_manifest
 from tcflow.workflow import prepare, generate_job, execute
 
 
@@ -49,7 +49,10 @@ def test_renamed_split_input_matches_original(dataset, tmp_path):
         files.append(str(path))
     other = deepcopy(cfg)
     other['dataset'].update(atmosphere=files, rename={'latitude':'lat', 'longitude':'lon', 'eastward_wind':'U'})
-    assert validate(other, 'sample') == reference
+    split_report = validate(other, 'sample')
+    assert reference.pop('input_files') == {'atmosphere': 1, 'sst': 1}
+    assert split_report.pop('input_files') == {'atmosphere': len(files), 'sst': len(files)}
+    assert split_report == reference
     with open_input(cfg, 'sample', decode_cf=True) as a, open_input(other, 'sample', decode_cf=True) as b:
         xr.testing.assert_equal(a, b)
 
@@ -75,6 +78,22 @@ def test_reject_incompatible_science_input(dataset, tmp_path, mutation, match):
     ds.to_netcdf(path)
     cfg['dataset']['atmosphere'] = str(path)
     with pytest.raises(ValueError, match=match):
+        validate(cfg, 'sample')
+
+
+def test_hourly_validation_reports_target_and_first_gap(dataset, tmp_path):
+    ds, cfg = dataset
+    ds = ds.assign_coords(time=np.array(
+        ['2001-01-01T00', '2001-01-01T03'], dtype='datetime64[h]'
+    ))
+    path = tmp_path / 'three-hourly.nc'
+    ds.to_netcdf(path)
+    cfg['dataset']['atmosphere'] = str(path)
+    cfg['initialization'] = 'hist.0907'
+    with pytest.raises(
+        ValueError,
+        match=r'case=sample, initialization=hist\.0907.*3h x1.*3 hours',
+    ):
         validate(cfg, 'sample')
 
 
@@ -285,6 +304,37 @@ def test_hindcast_initializations_have_isolated_run_directories(dataset):
     assert first != second
     assert resolve([first / 'resolved_config.yaml'])['initializations'] == ['hist.0907']
     assert (first / 'input_report.json').read_text().find('hist.0907') >= 0
+
+
+def test_hindcast_uses_first_seven_sorted_files(tmp_path):
+    directory = tmp_path / 'sample' / 'atm' / 'hist.0907'
+    directory.mkdir(parents=True)
+    for day in ('07', '08', '09', '10', '11', '12', '13', '14', '19'):
+        (directory / f'sample.cam.h1.2017-09-{day}-00000.nc').touch()
+    cfg = {
+        'case_path': str(tmp_path),
+        'initialization': 'hist.0907',
+        'dataset': {
+            'atmosphere': '{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc',
+            'first_files': 7,
+        },
+    }
+    selected = discover(cfg, 'sample')
+    assert len(selected) == 7
+    assert selected[0].endswith('2017-09-07-00000.nc')
+    assert selected[-1].endswith('2017-09-13-00000.nc')
+    assert not any('2017-09-14' in path or '2017-09-19' in path for path in selected)
+
+
+def test_hindcast_file_limit_rejects_incomplete_input(tmp_path):
+    source = tmp_path / 'only-one.nc'
+    source.touch()
+    cfg = {
+        'initialization': 'hist.0907',
+        'dataset': {'atmosphere': str(source), 'first_files': 7},
+    }
+    with pytest.raises(FileNotFoundError, match='requires 7.*only 1'):
+        discover(cfg, 'sample')
 
 
 @pytest.mark.parametrize('value', [0, -1, True, 1.5, None])

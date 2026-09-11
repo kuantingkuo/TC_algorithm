@@ -125,10 +125,14 @@ def main():
     cfg = configuration(args)
     if args.command == 'inspect-input':
         from .inputs import validate
-        print(json.dumps([
-            validate(target_config(cfg, initialization), case)
-            for case, initialization in execution_targets(cfg)
-        ], indent=2))
+        reports = []
+        for case, initialization in execution_targets(cfg):
+            label = f'case={case}'
+            if initialization:
+                label += f', initialization={initialization}'
+            print(f'Inspecting {label}', file=sys.stderr, flush=True)
+            reports.append(validate(target_config(cfg, initialization), case))
+        print(json.dumps(reports, indent=2))
     elif args.command == 'doctor':
         from .build import toolchain, binary_roundtrip, shell
         import shlex

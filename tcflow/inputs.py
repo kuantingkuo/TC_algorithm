@@ -28,7 +28,17 @@ def discover(cfg, case, kind='atmosphere'):
         if not matches:
             raise FileNotFoundError(f'No {kind} files match {expanded}')
         files.extend(str(Path(p).resolve()) for p in matches)
-    return sorted(set(files))
+    files = sorted(set(files))
+    first_files = dataset.get('first_files')
+    if first_files is not None:
+        if len(files) < first_files:
+            label = f'{case}/{initialization}' if initialization else case
+            raise FileNotFoundError(
+                f'{label}: dataset.first_files requires {first_files} {kind} files, '
+                f'but only {len(files)} matched'
+            )
+        files = files[:first_files]
+    return files
 
 
 def file_manifest(cfg, case):
@@ -104,7 +114,23 @@ def validate(cfg, case):
         delta = np.diff(times)
         hours = np.array([d.total_seconds()/3600 if hasattr(d, 'total_seconds') else d/np.timedelta64(1, 'h') for d in delta])
         if not np.allclose(hours, 1, rtol=0, atol=1e-8):
-            raise ValueError('Legacy lifetime=36 counts timesteps: only continuous hourly input is supported')
+            bad = np.flatnonzero(~np.isclose(hours, 1, rtol=0, atol=1e-8))
+            first = int(bad[0])
+            rounded, counts = np.unique(np.round(hours, 9), return_counts=True)
+            distribution = ', '.join(
+                f'{value:g}h x{count}' for value, count in zip(rounded[:10], counts[:10])
+            )
+            if len(rounded) > 10:
+                distribution += ', ...'
+            target = f'case={case}'
+            if cfg.get('initialization'):
+                target += f", initialization={cfg['initialization']}"
+            raise ValueError(
+                'Legacy lifetime=36 counts hourly timesteps: expected continuous '
+                f'1-hour input for {target}; observed intervals [{distribution}]. '
+                f'First mismatch: {times[first]} -> {times[first + 1]} '
+                f'({hours[first]:g} hours).'
+            )
         for name in ('time', 'lat', 'lon'):
             if name not in sst.coords or not atmosphere[name].equals(sst[name]):
                 raise ValueError(f'SST {name} does not exactly match atmosphere; no positional alignment allowed')
@@ -118,6 +144,10 @@ def validate(cfg, case):
             raise ValueError(f'Calendar {calendar} needs explicit CTL support')
         return {'case': case, 'sizes': dict(atmosphere.sizes), 'calendar': calendar,
                 'start': str(times[0]), 'end': str(times[-1]), 'interval_hours': 1,
+                'input_files': {
+                    'atmosphere': len(discover(cfg, case, 'atmosphere')),
+                    'sst': len(discover(cfg, case, 'sst')),
+                },
                 'sst_field': field, 'variables': sorted(atmosphere.data_vars),
                 **({'initialization': cfg['initialization']}
                    if cfg.get('initialization') else {})}

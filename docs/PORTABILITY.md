@@ -123,6 +123,22 @@ This produces four independent runs under
 different initializations. Within one initialization, all files matching its pattern
 still form that hindcast's continuous time series.
 
+When an initialization directory contains later files that do not belong to that
+hindcast, an explicit sorted-file limit can be applied:
+
+```yaml
+dataset:
+  atmosphere: '{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc'
+  first_files: 7
+```
+
+Files are sorted by their complete path and the first seven are used for both the
+atmosphere and the default same-file SST source. Fewer than seven matches is an error;
+additional files are excluded. Use this only when filename order is chronological,
+as it is for ISO `YYYY-MM-DD` dates. The selected absolute paths are recorded in
+`input_manifest.json`, and `inspect-input` reports the selected file count and time
+range.
+
 Optional `time_range: [start, end]` is an explicit, inclusive decoded-time selection
 used by all stages. It never appears automatically to shorten an experiment.
 At least two timestamps are needed to check sampling; meaningful lifetime validation

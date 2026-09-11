@@ -83,6 +83,11 @@ def resolve(paths, overrides=None):
         raise ValueError('time_range must be two quoted date/time strings')
     if not isinstance(cfg['dataset'].get('rename'), dict):
         raise ValueError('dataset.rename must be a mapping')
+    first_files = cfg['dataset'].get('first_files')
+    if first_files is not None:
+        if isinstance(first_files, bool) or not re.fullmatch(r'[1-9][0-9]*', str(first_files)):
+            raise ValueError('dataset.first_files must be a positive integer')
+        cfg['dataset']['first_files'] = int(first_files)
     if rt.get('env_manager') in ('conda', 'micromamba') and not rt.get('env_name'):
         raise ValueError('runtime.env_name is required')
     if cfg['scheduler']['backend'] not in ('local', 'slurm'):

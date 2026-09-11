@@ -20,6 +20,9 @@ dataset:
   # Each directory is an independent hindcast initialization.
   # Select h1 explicitly; h2 contains flux diagnostics on overlapping timestamps.
   atmosphere: "{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc"
+  # Filenames contain ISO dates, so name order is chronological. Require and use
+  # only the first seven daily files; later stray files belong to another run.
+  first_files: 7
   rename: {}
 
 runtime:

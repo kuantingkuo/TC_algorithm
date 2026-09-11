@@ -235,6 +235,28 @@ def run_parallel_detection(meta_ds, preproc_path, preproc_format, invert_vortici
     combined = xr.concat(ds_list, dim='time').sortby('time')
     return combined
 
+
+def detection_worker_count(meta_ds, runtime):
+    """Choose a process count without changing the per-timestep calculation."""
+    available_cpus = int(runtime.get('cpus') or (os.cpu_count() or 1))
+    time_steps = int(meta_ds.sizes['time'])
+    maximum = min(available_cpus, time_steps)
+    configured = runtime.get('detection_workers', available_cpus)
+    if configured != 'auto':
+        return min(int(configured), maximum)
+    horizontal_points = int(meta_ds.sizes['lat']) * int(meta_ds.sizes['lon'])
+    point_budget = int(runtime.get('detection_parallel_point_budget', 25_000_000))
+    workers = max(1, point_budget // horizontal_points)
+    selected = min(workers, maximum)
+    print(
+        'Auto detection workers: '
+        f'{meta_ds.sizes["lat"]}x{meta_ds.sizes["lon"]}={horizontal_points} '
+        f'horizontal points, parallel point budget={point_budget}, '
+        f'CPU/time cap={maximum}, selected={selected}',
+        flush=True,
+    )
+    return selected
+
 def _fast_temp_encoding(ds):
     encoding = {}
     for var_name in ds.data_vars:
@@ -284,12 +306,6 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     print(f'output filename: {outfile}')
     print('Input files: configured atmosphere source')
     runtime_cfg = (config or {}).get('runtime') or {}
-    cpu_cap = None
-    cpu_cap_value = runtime_cfg.get('cpus')
-    try:
-        cpu_cap = int(str(cpu_cap_value)) if cpu_cap_value is not None else None
-    except (TypeError, ValueError):
-        cpu_cap = None
     # Always compute IRT parameters & compile settings once (not part of parallel work)
     meta = pre(open_input(effective_config, casename, decode_cf=False))
     params = irt_params(meta); timer.mark('extract_params')
@@ -339,7 +355,10 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     timer.mark('preextract')
 
     print('Running time-parallel detection path (only mode)...')
-    ds = run_parallel_detection(meta, preproc_path, preproc_format, invert_vorticity_SH, cpu_cap)
+    ds = run_parallel_detection(
+        meta, preproc_path, preproc_format, invert_vorticity_SH,
+        detection_worker_count(meta, runtime_cfg),
+    )
     meta.close()
     timer.mark('TC_detect_parallel')
     print(ds)

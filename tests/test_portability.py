@@ -13,6 +13,7 @@ from tcflow.__main__ import check_python_dependencies, execution_targets
 from tcflow.build import ordered_link_flags, toolchain
 from tcflow.inputs import discover, open_input, validate, file_manifest
 from tcflow.workflow import prepare, generate_job, execute
+from tc_algorithm import detection_worker_count
 
 
 @pytest.fixture
@@ -294,6 +295,8 @@ def test_f1_hindcasts_expand_to_independent_targets(tmp_path):
         '{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc'
     )
     assert cfg['runtime']['cpus'] == 112
+    assert cfg['runtime']['detection_workers'] == 'auto'
+    assert cfg['runtime']['detection_parallel_point_budget'] == 25_000_000
     assert cfg['scheduler'] == {
         'backend': 'slurm',
         'account': 'MST113255',
@@ -311,6 +314,36 @@ def test_f1_hindcasts_expand_to_independent_targets(tmp_path):
     assert '#SBATCH --array=0-11%1' in job
     assert '#SBATCH --cpus-per-task=112' in job
     assert '#SBATCH --mem=450G' in job
+
+
+def test_detection_workers_scale_with_horizontal_grid():
+    runtime = {
+        'cpus': 112,
+        'detection_workers': 'auto',
+        'detection_parallel_point_budget': 25_000_000,
+    }
+    f1 = xr.Dataset(coords={
+        'time': np.arange(168), 'lat': np.arange(768), 'lon': np.arange(1152),
+    })
+    lower_resolution = xr.Dataset(coords={
+        'time': np.arange(168), 'lat': np.arange(384), 'lon': np.arange(576),
+    })
+    higher_resolution = xr.Dataset(coords={
+        'time': np.arange(168), 'lat': np.arange(1536), 'lon': np.arange(2304),
+    })
+    assert detection_worker_count(f1, runtime) == 28
+    assert detection_worker_count(lower_resolution, runtime) == 112
+    assert detection_worker_count(higher_resolution, runtime) == 7
+
+
+@pytest.mark.parametrize('workers', [0, -1, True, 1.5, 'many', 113])
+def test_detection_worker_setting_is_validated(dataset, tmp_path, workers):
+    _, cfg = dataset
+    cfg['runtime'].update(cpus=112, detection_workers=workers)
+    path = tmp_path / 'bad-workers.yaml'
+    write(path, cfg)
+    with pytest.raises(ValueError, match='detection_workers'):
+        resolve([path])
 
 
 def test_hindcast_initializations_have_isolated_run_directories(dataset):

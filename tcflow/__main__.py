@@ -57,6 +57,8 @@ def configuration(args):
         overrides['initializations'] = initializations
     if args.cpus is not None:
         overrides['runtime']['cpus'] = args.cpus
+    if args.detection_workers is not None:
+        overrides['runtime']['detection_workers'] = args.detection_workers
     for key in ('account', 'partition', 'time', 'memory', 'backend'):
         value = getattr(args, key, None)
         if value is not None:
@@ -97,6 +99,7 @@ def main():
         p.add_argument('--initialization', action='append')
         p.add_argument('--initializations')
         p.add_argument('--cpus', type=int)
+        p.add_argument('--detection-workers')
         p.add_argument('--account')
         p.add_argument('--partition')
         p.add_argument('--time')

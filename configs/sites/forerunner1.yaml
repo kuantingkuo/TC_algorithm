@@ -30,6 +30,10 @@ runtime:
   env_name: forge
   env_executable: /work1/eddie7824/miniconda3/bin/conda
   cpus: 112
+  # Cap simultaneous windspharm work by horizontal grid size. On a 768x1152
+  # grid, floor(25,000,000 / 884,736) selects 28 processes.
+  detection_workers: auto
+  detection_parallel_point_budget: 25000000
   # Single-file temporary storage avoids requiring Zarr for initial deployment.
   preproc_format: netcdf
   module_purge: true

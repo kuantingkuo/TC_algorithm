@@ -38,6 +38,9 @@ runtime:
   env_name: forge
   # env_executable: /absolute/path/to/conda
   cpus: 8
+  # Use an integer for a fixed cap, or auto with a tunable grid-point budget.
+  detection_workers: auto
+  detection_parallel_point_budget: 25000000
   compiler: ifx
   compiler_flags: null  # compiler-specific conservative defaults
   nf_config: nf-config
@@ -240,13 +243,18 @@ POSIX locking. Choose a filesystem with working advisory locks. Never use node-l
 Each case/initialization combination uses one Slurm task on one node with
 `cpus-per-task` worker capacity.
 Detection uses processes across time, with inner Numba/BLAS/OpenMP threading capped
-at one. Lifetime can use the allocated Numba threads. The configured worker count
-must fit `SLURM_CPUS_PER_TASK`. Arrays distribute independent cases across nodes;
+at one. `detection_workers: auto` selects
+`floor(detection_parallel_point_budget / (lat_size * lon_size))`, capped by the
+allocated CPUs and available time steps. The F1 budget of 25 million selects 28
+workers for a 768x1152 grid. Lower the budget if measured peak memory remains too
+high; this changes concurrency only. A fixed positive worker count is also accepted.
+Lifetime can use the allocated Numba threads. The configured worker count must fit
+`SLURM_CPUS_PER_TASK`. Arrays distribute independent cases across nodes;
 tracking stays sequential over each complete time series. A Slurm-configured run
 refuses execution without an allocation.
 
 This release does not distribute a single case across nodes, independently track
-calendar chunks, or automatically select memory/chunking. Existing preprocessing
+calendar chunks, or automatically select Slurm memory/chunking. Existing preprocessing
 and SST persistence can use substantial memory on long experiments. Benchmark a
 representative explicitly selected period before requesting full-run resources;
 never change scientific thresholds to fit memory.

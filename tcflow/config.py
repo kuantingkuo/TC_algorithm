@@ -10,7 +10,8 @@ DEFAULTS = {
     'runtime': {'cpus': 1, 'preproc_format': 'netcdf',
                 'env_manager': 'conda', 'env_name': 'forge',
                 'load_modules': [], 'compiler': 'gfortran',
-                'compiler_flags': None, 'module_purge': False},
+                'compiler_flags': None, 'module_purge': False,
+                'detection_parallel_point_budget': 25_000_000},
     'scheduler': {'backend': 'local', 'time': '08:00:00',
                   'memory': '16G', 'array_limit': 1},
     'dataset': {'adapter': 'cesm_hybrid', 'rename': {}},
@@ -73,6 +74,24 @@ def resolve(paths, overrides=None):
     if not re.fullmatch(r'[1-9][0-9]*', str(rt['cpus'])):
         raise ValueError('runtime.cpus must be a positive integer')
     rt['cpus'] = int(rt['cpus'])
+    detection_workers = rt.get('detection_workers')
+    if detection_workers is not None:
+        if detection_workers != 'auto':
+            if (isinstance(detection_workers, bool) or
+                    not re.fullmatch(r'[1-9][0-9]*', str(detection_workers))):
+                raise ValueError(
+                    "runtime.detection_workers must be 'auto' or a positive integer"
+                )
+            rt['detection_workers'] = int(detection_workers)
+            if rt['detection_workers'] > rt['cpus']:
+                raise ValueError('runtime.detection_workers cannot exceed runtime.cpus')
+    point_budget = rt.get('detection_parallel_point_budget')
+    if (isinstance(point_budget, bool) or
+            not re.fullmatch(r'[1-9][0-9]*', str(point_budget))):
+        raise ValueError(
+            'runtime.detection_parallel_point_budget must be a positive integer'
+        )
+    rt['detection_parallel_point_budget'] = int(point_budget)
     for field in ('load_modules', 'python_modules'):
         if field in rt and (not isinstance(rt[field], list) or not all(isinstance(v, str) for v in rt[field])):
             raise ValueError(f'runtime.{field} must be a list of module names')

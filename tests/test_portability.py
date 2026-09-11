@@ -281,7 +281,7 @@ def test_hpc_profiles_select_netcdf_preprocessing(dataset):
         assert result['runtime']['preproc_format'] == 'netcdf'
 
 
-def test_f1_hindcasts_expand_to_independent_targets():
+def test_f1_hindcasts_expand_to_independent_targets(tmp_path):
     cfg = resolve([
         ROOT / 'config.yaml',
         ROOT / 'configs' / 'sites' / 'forerunner1.yaml',
@@ -293,6 +293,24 @@ def test_f1_hindcasts_expand_to_independent_targets():
     assert cfg['dataset']['atmosphere'] == (
         '{root}/{case}/atm/{initialization}/{case}.cam.h1.*.nc'
     )
+    assert cfg['runtime']['cpus'] == 112
+    assert cfg['scheduler'] == {
+        'backend': 'slurm',
+        'account': 'MST113255',
+        'partition': 'ct112',
+        'qos': 'normal',
+        'time': '08:00:00',
+        'memory': '450G',
+        'array_limit': 1,
+    }
+    cfg['output_path'] = str(tmp_path)
+    script = generate_job(cfg, [tmp_path / f'run-{i}' for i in range(len(targets))])
+    job = script.read_text()
+    assert '#SBATCH --partition=ct112' in job
+    assert '#SBATCH --qos=normal' in job
+    assert '#SBATCH --array=0-11%1' in job
+    assert '#SBATCH --cpus-per-task=112' in job
+    assert '#SBATCH --mem=450G' in job
 
 
 def test_hindcast_initializations_have_isolated_run_directories(dataset):

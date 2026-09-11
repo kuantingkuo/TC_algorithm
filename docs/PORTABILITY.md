@@ -23,6 +23,12 @@ Taiwania 3 profile remains a template that requires target-specific values. Both
 profiles select NetCDF preprocessing for initial deployment, so Zarr remains optional
 unless a later user configuration selects it.
 
+The F1 hindcast profile uses `ct112` with 112 CPUs per array element. Unlike the
+`development` partition's two-job submission limit, `ct112` accepts the profile's 12
+array elements. Its 4308 MB per CPU allocation also accommodates the explicit 450G
+request at 112 CPUs. The array concurrency limit remains one until representative
+runtime and memory usage have been measured.
+
 ```yaml
 # Example user file: replace paths and module names, do not use these literally.
 case_path: /absolute/input/root

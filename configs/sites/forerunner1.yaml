@@ -54,7 +54,11 @@ runtime:
 scheduler:
   backend: slurm
   account: MST113255
-  partition: development
+  # Twelve array elements exceed development's two-job submission limit.
+  # ct112 accepts 1-112 cores per job and up to 32 submitted jobs per user.
+  partition: ct112
+  qos: normal
   time: '08:00:00'
   memory: 450G
+  # Start conservatively with one full-node hindcast running at a time.
   array_limit: 1

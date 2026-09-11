@@ -1,13 +1,18 @@
-# F1 deployment for f02.F2000.Tai-Talim.CAPT.hi01.
+# F1 deployment for the TaiESM Talim experiments.
 # Official manual: https://man.twcc.ai/@f1-manual/manual
-case: f02.F2000.Tai-Talim.CAPT.hi01
-case_path: /work1/j07hsu00/taiesm_work/archive
+cases:
+  - f02.F2000.Tai-Talim.CAPT.hi01
+  - f02.F2000.Tai-Talim-UP.CAPT.hi11
+case_path: /work1/j07hcl00/taiesm_work/archive
 output_path: /work1/eddie7824/track_output
 file_pattern: "cam.h1.*.nc"
 invert_vorticity_SH: true
 
 dataset:
   adapter: cesm_hybrid
+  # Each experiment stores daily history files under atm/hist.0907 ... hist.0912.
+  # Select h1 explicitly; h2 contains flux diagnostics on overlapping timestamps.
+  atmosphere: "{root}/{case}/atm/hist.*/{case}.cam.h1.*.nc"
   rename: {}
 
 runtime:

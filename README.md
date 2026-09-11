@@ -30,7 +30,7 @@ bash run.sh prepare
 bash run.sh run
 
 # Configure a target machine and generate a Slurm script.
-bash run.sh prepare --site forerunner1 --user-config /path/to/my-f1.yaml
+bash run.sh prepare --site forerunner1
 # Submit the job.sh path printed by the command.
 ```
 

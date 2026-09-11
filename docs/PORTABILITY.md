@@ -17,11 +17,11 @@ input patterns; `{root}` is `case_path`. Environment variables are expanded in i
 and runtime directory paths at preparation time.
 
 The local site keeps compiler/modules from your base configuration and selects
-Conda `forge`. The bundled F1/T3 sites intentionally leave compiler, account and
-partition unset. Configure these from the actual target environment. An existing
-local module list is cleared by the F1/T3 profiles. These profiles explicitly select
-NetCDF preprocessing for initial deployment, so Zarr remains optional unless a later
-user configuration selects it.
+Conda `forge`. The bundled F1 profile contains this project's current case, paths,
+compiler modules, account and partition. Update it when those F1 values change. The
+Taiwania 3 profile remains a template that requires target-specific values. Both HPC
+profiles select NetCDF preprocessing for initial deployment, so Zarr remains optional
+unless a later user configuration selects it.
 
 ```yaml
 # Example user file: replace paths and module names, do not use these literally.
@@ -127,7 +127,7 @@ bash run.sh inspect-input --user-config /path/to/local.yaml
 bash run.sh run --user-config /path/to/local.yaml
 
 # Generate scripts on the target host, inspect them, then submit when ready.
-bash run.sh prepare --site forerunner1 --user-config /path/to/f1.yaml
+bash run.sh prepare --site forerunner1
 # The command prints the absolute job.sh path.
 sbatch /printed/path/to/job.sh
 

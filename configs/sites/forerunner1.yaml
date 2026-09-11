@@ -1,20 +1,44 @@
-# Fill compiler/module/NetCDF settings from the actual F1 environment.
+# F1 deployment for f02.F2000.Tai-Talim.CAPT.hi01.
 # Official manual: https://man.twcc.ai/@f1-manual/manual
+case: f02.F2000.Tai-Talim.CAPT.hi01
+case_path: /work1/j07hsu00/taiesm_work/archive
+output_path: /work1/eddie7824/track_output
+file_pattern: "cam.h1.*.nc"
+invert_vorticity_SH: true
+
+dataset:
+  adapter: cesm_hybrid
+  rename: {}
+
 runtime:
   env_manager: conda
   env_name: forge
+  env_executable: /work1/eddie7824/miniconda3/bin/conda
+  cpus: 112
   # Single-file temporary storage avoids requiring Zarr for initial deployment.
   preproc_format: netcdf
   module_purge: true
-  module_use: null
-  load_modules: []
-  compiler: null
-  compiler_flags: null
+  module_use: /home/j07cyt00/codecs/modulefiles
+  load_modules:
+    - rcec/stack-impi
+    - netcdf-fortran
+  compiler: ifort
+  compiler_flags: >-
+    -no-wrap-margin
+    -mcmodel=large
+    -check bounds
+    -debug all
+    -traceback
+    -g
+    -shared-intel
+    -free
+    -heap-arrays 10
   nf_config: nf-config
+
 scheduler:
   backend: slurm
-  account: null
-  partition: null
+  account: MST113255
+  partition: development
   time: '08:00:00'
-  memory: 16G
+  memory: 450G
   array_limit: 1

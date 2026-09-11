@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import xarray as xr
 from tcflow.config import ROOT, resolve, write
+from tcflow.__main__ import check_python_dependencies
 from tcflow.inputs import open_input, validate, file_manifest
 from tcflow.workflow import prepare, generate_job, execute
 
@@ -193,6 +194,40 @@ def test_launcher_ignores_inherited_python_paths(dataset, tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'inherited PYTHONPATH was used' not in result.stdout + result.stderr
+
+
+def test_doctor_explains_missing_optional_zarr(dataset, monkeypatch):
+    _, cfg = dataset
+    cfg['runtime']['preproc_format'] = 'zarr'
+
+    def import_module(name):
+        if name == 'zarr':
+            raise ModuleNotFoundError("No module named 'zarr'", name='zarr')
+        return object()
+
+    monkeypatch.setattr('tcflow.__main__.importlib.import_module', import_module)
+    with pytest.raises(RuntimeError, match='preproc_format.*zarr.*netcdf'):
+        check_python_dependencies(cfg)
+
+
+def test_netcdf_preprocessing_does_not_require_zarr(dataset, monkeypatch):
+    _, cfg = dataset
+    cfg['runtime']['preproc_format'] = 'netcdf'
+    imported = []
+    monkeypatch.setattr(
+        'tcflow.__main__.importlib.import_module',
+        lambda name: imported.append(name),
+    )
+    check_python_dependencies(cfg)
+    assert 'zarr' not in imported
+
+
+def test_hpc_profiles_select_netcdf_preprocessing(dataset):
+    _, cfg = dataset
+    cfg['runtime']['preproc_format'] = 'zarr'
+    for site in ('forerunner1', 'taiwania3'):
+        result = resolve([ROOT / 'config.yaml', ROOT / 'configs' / 'sites' / f'{site}.yaml'])
+        assert result['runtime']['preproc_format'] == 'netcdf'
 
 
 @pytest.mark.parametrize('value', [0, -1, True, 1.5, None])

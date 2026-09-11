@@ -19,7 +19,9 @@ and runtime directory paths at preparation time.
 The local site keeps compiler/modules from your base configuration and selects
 Conda `forge`. The bundled F1/T3 sites intentionally leave compiler, account and
 partition unset. Configure these from the actual target environment. An existing
-local module list is cleared by the F1/T3 profiles.
+local module list is cleared by the F1/T3 profiles. These profiles explicitly select
+NetCDF preprocessing for initial deployment, so Zarr remains optional unless a later
+user configuration selects it.
 
 ```yaml
 # Example user file: replace paths and module names, do not use these literally.
@@ -106,6 +108,15 @@ At least two timestamps are needed to check sampling; meaningful lifetime valida
 needs a longer interval. Lifetime still counts track timesteps and uses the existing
 36-step threshold. Supported calendars are noleap/365_day and Gregorian variants;
 the CTL noleap option is emitted only for noleap data.
+
+If `runtime.preproc_format: zarr` is selected, both `zarr` and `numcodecs` must be
+installed in the selected Conda environment. To validate F1 initially without that
+optional dependency, select the F1 site profile or set the following explicitly:
+
+```yaml
+runtime:
+  preproc_format: netcdf
+```
 
 ## Preparing, running and resuming
 

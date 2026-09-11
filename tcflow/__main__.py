@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import json
 import os
 from pathlib import Path
@@ -6,6 +7,32 @@ import subprocess
 import sys
 import tempfile
 from .config import ROOT, resolve
+
+
+def check_python_dependencies(cfg):
+    modules = ('yaml', 'numpy', 'xarray', 'numba', 'windspharm.standard',
+               'netCDF4', 'h5netcdf', 'dask')
+    if cfg['runtime']['preproc_format'] == 'zarr':
+        modules += ('zarr',)
+    for module in modules:
+        try:
+            importlib.import_module(module)
+        except ModuleNotFoundError as error:
+            missing = error.name or module
+            environment = cfg['runtime'].get('env_name', 'forge')
+            if module == 'zarr' or missing in ('zarr', 'numcodecs'):
+                raise RuntimeError(
+                    f"Python module {missing!r} is required because "
+                    "runtime.preproc_format is 'zarr', but it is unavailable in "
+                    f"{sys.executable}. Install zarr and numcodecs in Conda "
+                    f"environment {environment!r}, or explicitly set "
+                    "runtime.preproc_format: netcdf."
+                ) from None
+            raise RuntimeError(
+                f"Python module {missing!r}, required by {module!r}, is unavailable "
+                f"in {sys.executable}. Install the project environment from "
+                "envs/environment.yaml and rerun doctor."
+            ) from None
 
 
 def configuration(args):
@@ -59,8 +86,8 @@ def main():
     group.add_argument('--batch')
     p.add_argument('--index', type=int, default=0)
     args = parser.parse_args()
-    from .workflow import prepare, execute, generate_job
     if args.command == 'execute':
+        from .workflow import execute
         run = args.run
         if args.batch:
             runs = json.loads(Path(args.batch).read_text())
@@ -74,13 +101,9 @@ def main():
         from .inputs import validate
         print(json.dumps([validate(cfg, c) for c in cfg['cases']], indent=2))
     elif args.command == 'doctor':
-        import importlib
         from .build import toolchain, binary_roundtrip, shell
         import shlex
-        for name in ('yaml', 'numpy', 'xarray', 'numba', 'windspharm.standard', 'netCDF4', 'h5netcdf', 'dask'):
-            importlib.import_module(name)
-        if cfg['runtime']['preproc_format'] == 'zarr':
-            importlib.import_module('zarr')
+        check_python_dependencies(cfg)
         tc = toolchain(cfg['runtime'])
         with tempfile.TemporaryDirectory(prefix='tc-doctor-') as directory:
             binary_roundtrip(directory, cfg['runtime'], tc)
@@ -102,6 +125,7 @@ def main():
                 if not cfg['scheduler'].get(key):
                     raise ValueError(f'Set scheduler.{key}; target availability still needs checking on the cluster')
     else:
+        from .workflow import prepare, generate_job
         if cfg['scheduler']['backend'] == 'slurm':
             for key in ('account', 'partition'):
                 if not cfg['scheduler'].get(key):

@@ -1,5 +1,19 @@
 # Portability validation — 2026-09-07
 
+## F1 bootstrap follow-up — 2026-09-11
+
+F1 exposed Python 3.10 packages from its Spack stack to the Conda Python 3.13 through
+an inherited `PYTHONPATH`. Launchers now isolate `PYTHONPATH`, unset `PYTHONHOME`, and
+disable the user site directory. A second F1 check then showed that optional Zarr was
+not installed in `forge`. The F1/T3 profiles now explicitly select NetCDF temporary
+storage for initial deployment, while an explicit Zarr selection receives an
+actionable dependency error instead of a traceback.
+
+The focused portability suite passed 28 tests after these changes. The two optional
+real-compiler integration tests were not repeated in this follow-up because the
+changes affect only bootstrap dependency checks and site-profile preprocessing
+selection; their earlier successful result remains documented below.
+
 ## Scope and environment
 
 Validation ran locally in the existing Conda `forge` environment. No Python packages

@@ -3,6 +3,8 @@
 runtime:
   env_manager: conda
   env_name: forge
+  # Single-file temporary storage avoids requiring Zarr for initial deployment.
+  preproc_format: netcdf
   module_purge: true
   module_use: null
   load_modules: []

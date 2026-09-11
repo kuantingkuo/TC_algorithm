@@ -38,6 +38,9 @@ The launcher isolates `forge` from `PYTHONPATH` and `PYTHONHOME` inherited from 
 module stacks. This is required when a site module exposes packages compiled for a
 different Python version, as can happen with the F1 Spack stack.
 
+The F1 and Taiwania 3 profiles use NetCDF temporary storage initially. Zarr is an
+optional preprocessing format and requires `zarr` plus `numcodecs` in `forge`.
+
 The pipeline performs input validation, an isolated Fortran build, time-parallel
 detection, sequential object/track construction, then lifetime/SST filtering.
 Each run records its resolved configuration, input manifest, source fingerprint,

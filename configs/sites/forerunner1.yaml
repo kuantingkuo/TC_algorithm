@@ -1,0 +1,18 @@
+# Fill compiler/module/NetCDF settings from the actual F1 environment.
+# Official manual: https://man.twcc.ai/@f1-manual/manual
+runtime:
+  env_manager: conda
+  env_name: forge
+  module_purge: true
+  module_use: null
+  load_modules: []
+  compiler: null
+  compiler_flags: null
+  nf_config: nf-config
+scheduler:
+  backend: slurm
+  account: null
+  partition: null
+  time: '08:00:00'
+  memory: 16G
+  array_limit: 1

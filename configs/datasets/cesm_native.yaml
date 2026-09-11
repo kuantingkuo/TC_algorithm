@@ -1,0 +1,4 @@
+dataset:
+  adapter: cesm_hybrid
+  # With no atmosphere/sst pattern, use the legacy case_path/file_pattern layout.
+  rename: {}

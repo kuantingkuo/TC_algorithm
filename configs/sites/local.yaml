@@ -1,0 +1,7 @@
+# Keep compiler/modules from config.yaml or --user-config for your local machine.
+# A GNU installation needs a matching GNU-built NetCDF Fortran library.
+runtime:
+  env_manager: conda
+  env_name: forge
+scheduler:
+  backend: local

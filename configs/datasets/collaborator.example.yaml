@@ -1,0 +1,12 @@
+# Explicit examples only: replace these paths/names with the input contract.
+dataset:
+  adapter: cesm_hybrid
+  atmosphere:
+    - '{root}/{case}/atmosphere/*/*.nc'
+  sst:
+    - '{root}/{case}/surface/*/*.nc'
+  rename:
+    longitude: lon
+    latitude: lat
+    # u: U
+    # v: V

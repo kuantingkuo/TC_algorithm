@@ -279,6 +279,6 @@ def vertical_slice_bounds(pres: np.ndarray,
         k_max = lev_len - 1
     return k_min, k_max
 
-def load_config(config_path="config.yaml"):
-    with open(config_path, 'r') as file:
-        return yaml.safe_load(file)
+def load_config(config_path=None):
+    from tcflow.config import load
+    return load(config_path)

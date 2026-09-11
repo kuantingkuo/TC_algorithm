@@ -11,7 +11,7 @@ USE irt_parameters, ONLY: domainsize_x, domainsize_y, lperiodic_x, lperiodic_y, 
 
 IMPLICIT NONE
 
-INTEGER              :: domsize_x, domsize_y,lrec
+INTEGER              :: lrec
 
 INTEGER              :: ii, ij,ix,iy,idx,idy
 REAL                 :: readdata(domainsize_x,domainsize_y)
@@ -325,8 +325,10 @@ DO iy=1, domainsize_y
             second_largest_forward_link(i_prev) .EQ. counter_total_actual+i_act) CYCLE
         dx = center_of_mass_x(i_act,n_actual)-center_of_mass_x(i_prev,n_previous)
         dy = center_of_mass_y(i_act,n_actual)-center_of_mass_y(i_prev,n_previous)
-        IF (dx .GT. domainsize_x/2)  dx = dx-domsize_x
-        IF (dx .LT. -domainsize_x/2) dx = dx+domsize_x
+        ! Use the declared grid width for periodic displacement. The former
+        ! local domsize_x was uninitialized and made boundary velocities vary.
+        IF (dx .GT. domainsize_x/2)  dx = dx-domainsize_x
+        IF (dx .LT. -domainsize_x/2) dx = dx+domainsize_x
         IF (dy .GT. domainsize_y/2)  dy = dy-domainsize_y
         IF (dy .LT. -domainsize_y/2) dy = dy+domainsize_y
         velocity_x(i_prev) = velocity_x(i_prev)+dx*totarea(i_act,n_actual)

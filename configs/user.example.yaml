@@ -1,0 +1,12 @@
+# Copy outside the tracked examples and fill with your own paths and allocation.
+case_path: /absolute/path/to/input
+output_path: /absolute/path/to/output
+runtime:
+  cpus: 8
+  # compiler: ifx
+  # load_modules: [your-compiler-module, your-compatible-netcdf-fortran-module]
+  # scratch_root: /absolute/path/to/scratch
+  # irt_build_cache_root: /absolute/path/to/shared/build-cache
+scheduler:
+  account: null
+  partition: null

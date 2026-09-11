@@ -76,13 +76,18 @@ def write_tc(TCid, TCnew, mask):
     TCnew[mask==TCid] = TCid
     return TCnew
 
-def main(case, sstfils, path):
+def main(case, sstfils, path, config=None):
     timer = StepTimer(enabled=True)
     nTC = 0
     life_all = 0
     warning_msgs = []
     print(ctime(), 'open SST files:', sstfils)
-    sstnc = xr.open_mfdataset(sstfils, data_vars='all'); timer.mark('open_sst_mfdataset')
+    if config is None:
+        sstnc = xr.open_mfdataset(sstfils, data_vars='all')
+    else:
+        from tcflow.inputs import open_input
+        sstnc = open_input(config, case, 'sst', decode_cf=True)
+    timer.mark('open_sst_mfdataset')
     if 'SST' in sstnc.data_vars:
         sst = sstnc.SST
         var_timer_tag = 'select_SST'
@@ -130,6 +135,8 @@ def main(case, sstfils, path):
             life_all += life
             TCnew = write_tc(TCid, TCnew, mask)
     timer.mark('iterate_sections')
+    if TCnew.size != sstnc.sizes['time'] * ny * nx:
+        raise ValueError('Track mask size does not match SST time/latitude/longitude')
     TCnew = TCnew.reshape((-1,ny,nx))
     tsize = TCnew.shape[0]
     TC = xr.DataArray(
@@ -159,9 +166,10 @@ def main(case, sstfils, path):
 
     ctl_path = f'{path}/irt_tracks_mask.ctl'
     t_start = TC.time[0].dt.strftime('%H:%MZ%d%b%Y').values
+    calendar = sstnc.time.encoding.get('calendar', 'standard')
+    calendar_option = 'OPTIONS 365_day_calendar\n' if calendar in ('noleap', '365_day') else ''
     ctl = f"""DSET ^irt_tracks_mask.dat
-OPTIONS 365_day_calendar
-UNDEF -9.99e8
+{calendar_option}UNDEF -9.99e8
 XDEF {nx} LINEAR {TC.lon[0].values} {(TC.lon[1]-TC.lon[0]).values}
 YDEF {ny} LINEAR {TC.lat[0].values} {(TC.lat[1]-TC.lat[0]).values}
 ZDEF 1 levels {getattr(sstnc, 'lev', xr.DataArray([0])).values[-1]}
@@ -172,6 +180,7 @@ ENDVARS
 """
     with open(ctl_path, "w") as f:
         f.write(ctl); timer.mark('write_ctl')
+    sstnc.close()
     return
 
 if __name__ == "__main__":
@@ -187,4 +196,4 @@ if __name__ == "__main__":
     output_path = config['output_path']
     file_pattern = config['file_pattern']
     print(ctime(), case)
-    main(case, f'{case_path}/{case}/atm/hist/{case}.{file_pattern}', f'{output_path}/{case}')
+    main(case, None, f'{output_path}/{case}', config=config)

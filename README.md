@@ -1,174 +1,81 @@
 # TC algorithm
 
-This repository contains scripts and utilities for tropical cyclone (TC) detection and tracking. The detection process of the first version of this algorithm is described in Section 2.3 of [Kuo et al. (2023)](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2022EA002681). The tracking tool is adapted from the [Iterative Rain Cell Tracking (IRT)](https://github.com/christophermoseley/iterative_raincell_tracking) software.
+Detect tropical cyclone candidates, construct IRT objects and tracks, and filter
+tracks to produce TC counts and lifetime statistics. The detection method originates
+from Section 2.3 of [Kuo et al. (2023)](https://doi.org/10.1029/2022EA002681).
+Tracking is adapted from [Iterative Rain Cell Tracking](https://github.com/christophermoseley/iterative_raincell_tracking).
 
-## Getting Started
+The portable workflow runs the same scientific functions locally or in Slurm jobs.
+Machine configuration, input layout and experiment settings are separate. Existing
+CESM hybrid-coordinate, global regular-grid, hourly data is the supported input
+contract. F1 and Taiwania 3 site templates require settings from your actual account
+and software environment; they are not prevalidated deployments.
 
-The main workflow is managed by the `run.sh` shell script.
+## Quick start
 
-### Prerequisites
-
-This code has been tested with the following packages:
-
-- Python==3.10
-- xarray==2025.6.1
-- dask==2025.5.1
-- netCDF4==1.7.2
-- numpy==1.26.4
-- numba==0.61.2
-- windspharm==2.0.0
-- PyYAML==6.0.2
-
-Fortran compiler (for the tracking code) with NetCDF library support
-
-### Input Files
-
-The input NetCDF files are primarily designed for CESM output.
-
-Required by `tc_algorithm.py`:
-
-- `U`, `V`, `PS`, `T`, `Q`, `Z3`, `hyam`, `hybm`, `P0`
-
-Optional in `tc_algorithm.py` (computed if missing):
-
-- `U850`, `V850` (derived from `U`/`V`)
-- `PSL` (derived from low-level thermodynamic fields)
-
-Required by `TC_lifetime.py`:
-
-- `SST` or `TS`
-
-### Configuration
-
-Edit `config.yaml` to specify your case or cases, input/output paths, file patterns, and options such as vorticity sign inversion for the Southern Hemisphere.
-Single-case mode can use the singular `case` field, while multi-case mode can use the `cases:` list in `config.yaml`. CLI overrides via `run.sh --case ...` or `run.sh --cases ...` are still supported.
-
-Optional runtime settings (under `runtime:`):
-
-- `env_manager`: Python environment manager to use in generated `submit.sh`. Supported values are `conda`, `micromamba`, and `none`.
-- `env_name`: Environment name to activate when `env_manager` is `conda` or `micromamba`. Use `base` if that machine keeps packages in the base environment.
-- `cpus`: Logical CPU count used for time-parallel detection.
-- `module_use`: A modulefiles directory path to prepend via `module use <path>` before any `module load` statements. If empty or omitted, no `module use` line is emitted.
-- `account`: Default Slurm account to use if `--account` not passed to `run.sh`.
-- `partition`: Default Slurm partition to use if `--partition` not passed.
-- `load_modules`: List of modules to load (after optional `module use`).
-- `compiler` / `compiler_flags`: Used to rewrite `tracking/tracking2/compile.sh` `COMPILE_COMMAND`.
-
-Example:
-
-```yaml
-case: F2000
-case_path: /data/User/archive/
-output_path: /data/User/track_output/
-file_pattern: cam.h0.*.nc
-invert_vorticity_SH: true
-runtime:
-  env_manager: conda
-  env_name: myenv
-  cpus: 32
-  module_use: /home/user/custom/modulefiles
-  account: proj1234
-  load_modules:
-    - netcdf/4.7.4
-    - hdf5/1.12.0
-  compiler: ifort
-  compiler_flags: >-
-    -O2 -traceback
-```
-
-### Workflow Overview
-
-Before beginning, ensure your environment and required modules are set up correctly. Pay particular attention to these two files:
-
-- `run.sh`
-- `tracking/tracking2/compile.sh`
-
-Note on environment setup: `run.sh` reads environment and module settings from `config.yaml` under `runtime:` and emits them into `submit.sh`. In most cases, update `config.yaml` rather than editing `run.sh` directly. If your system does not use Environment Modules, keep `runtime.load_modules` empty. If your Python environment is already active before submission, use `env_manager: none`.
-
-`tracking/tracking2/compile.sh` assumes Intel ifort and a specific NetCDF installation (include/lib paths embedded in `COMPILE_COMMAND`). Edit `COMPILE_COMMAND` to match your compiler (e.g., ifort, gfortran) and your NetCDF Fortran include and library paths on your system.
-  
-### Run the tracking algorithm
-
-Run the workflow in two steps:
-
-1. Generate submit script(s) from `config.yaml` (and optional CLI overrides).
+Use the Conda environment `forge` for Python. See `envs/environment.yaml` for the
+package specification and the deployment guide for compiler/NetCDF compatibility.
+Your existing local compiler/module settings in `config.yaml` are retained by the
+local site profile.
 
 ```bash
-bash run.sh
+# Validate the actual environment and the configured input data.
+bash run.sh doctor
+bash run.sh inspect-input
+
+# Generate a job script without running the experiment.
+bash run.sh prepare
+
+# Execute locally in an independent run directory.
+bash run.sh run
+
+# Configure a target machine and generate a Slurm script.
+bash run.sh prepare --site forerunner1 --user-config /path/to/my-f1.yaml
+# Submit the job.sh path printed by the command.
 ```
 
-Multi-case generation examples:
+The pipeline performs input validation, an isolated Fortran build, time-parallel
+detection, sequential object/track construction, then lifetime/SST filtering.
+Each run records its resolved configuration, input manifest, source fingerprint,
+logs and output checksums. Resume with `bash run.sh execute --run /path/to/run`.
+A Slurm run must be resumed inside its allocation or by resubmitting its generated
+job script.
+
+Results are under `output_path/<case>/<run_id>/results/<case>/`:
+
+- `<case>.TC.nc`: intermediate detection features and candidate mask.
+- `irt_objects_*`, `irt_tracks_*`, `irt_tracklinks_output.txt`: IRT objects and tracks.
+- `TC.nc`: final lifetime-filtered TC IDs.
+- `TC.txt`: total TC count and mean lifetime (legacy hourly timestep convention).
+
+[Deployment, input configuration, Slurm arrays and resume behavior](docs/PORTABILITY.md)
+includes configuration precedence, examples and migration from the former generated
+`submit.sh` interface. `run.sh` no longer overwrites scripts in the source directory.
+
+## Validation
 
 ```bash
-# generate one script per case
-bash run.sh --cases Talim0903_gen_vary20,Talim0903_gen_vary32,Talim0903_gen_vary40
-
-# equivalent repeated flag form
-bash run.sh --case Talim0903_gen_vary20 --case Talim0903_gen_vary32 --case Talim0903_gen_vary40
+conda run -n forge python -m pytest -q tests
 ```
 
-2. Execute the generated script(s) via Slurm, or run each directly in shell.
-
-```bash
-sbatch submit.sh
-# or
-bash submit.sh
-```
-
-For multi-case mode, `run.sh` generates `submit_<case>.sh` files. Submit all generated scripts to run cases concurrently, for example:
-
-```bash
-sbatch submit_Talim0903_gen_vary20.sh
-sbatch submit_Talim0903_gen_vary32.sh
-sbatch submit_Talim0903_gen_vary40.sh
-```
-
-You can also submit immediately while generating scripts:
-
-```bash
-bash run.sh --cases Talim0903_gen_vary20,Talim0903_gen_vary32,Talim0903_gen_vary40 --submit
-```
-
-The generated `submit.sh` script runs three main steps:
-
-1. `tc_algorithm.py`: Identifies all potential TC grid points for each time snapshot.
-2. `tracking.sh`: Links detected objects and tracks them over time.
-3. `TC_lifetime.py`: Filters TC-like objects based on their lifetime and sea surface temperature (SST).
-
-Parallel behavior summary:
-
-- `tc_algorithm.py` uses time-parallel workers (`ProcessPoolExecutor`) controlled by `runtime.cpus`.
-- `utils.py` and `TC_lifetime.py` include Numba parallel kernels for selected loops.
-- `tracking/tracking2/iterate.sh` executes the Fortran tracking stages sequentially.
-
-Parallel safety note:
-
-- Tracking now uses a per-case workspace under `tracking/tracking_data_<case>/` to avoid file collisions.
-- Different grids are isolated through per-grid build caches under `tracking/build_cache/`.
-- Fortran compile/tracking stage is protected by a shared lock file (`/tmp/tc_algorithm_compile.lock` by default, configurable via `runtime.compile_lock_file`) to avoid concurrent binary/parameter races.
-
-### Output
-
-The following files are generated in the `output_path` directory (within the case subfolder):
-
-- `irt_objects_mask.dat`
-- `irt_objects_output.txt`
-- `irt_tracklinks_output.txt`
-- `irt_tracks_mask.ctl`
-- `irt_tracks_mask.dat`
-- `irt_tracks_output.txt`
-- `CASE.TC.nc` (intermediate detection features & mask)
-- **`TC.nc`** (final lifetime-filtered storm IDs)
-- `TC.txt` (summary counts and mean lifetime)
-
-Here, `CASE` refers to the case name specified in `config.yaml`.
-
-`TC.nc` is the main output file containing TC IDs that correspond to `irt_tracks_output.txt`. `CASE.TC.nc` is an intermediate file holding detection-time features and masks (useful for debugging).
+Tests cover input layout/variable mapping, scientific-contract rejection, immutable
+runs, CPU allocation, and Slurm script generation. Target-machine scientific
+regression remains required before production use; consult the validation report in
+`docs/VALIDATION.md` for checks actually performed in this workspace.
 
 ## References
 
-1. **Kuo, K.**, C. Wu, and W. Chen, 2023: Effects of the Horizontal Scales of the Cloud‐Resolving Model on Tropical Cyclones in the Superparameterized Community Atmosphere Model. *Earth Sp. Sci.*, 10, [https://doi.org/10.1029/2022EA002681](https://doi.org/10.1029/2022EA002681).
+- Kuo, K., C. Wu, and W. Chen (2023), Effects of the Horizontal Scales of the
+  Cloud-Resolving Model on Tropical Cyclones in the Superparameterized Community
+  Atmosphere Model. *Earth and Space Science*, 10,
+  [doi:10.1029/2022EA002681](https://doi.org/10.1029/2022EA002681).
+- Moseley, C., O. Henneberg, and J. O. Haerter (2019), A Statistical Model for
+  Isolated Convective Precipitation Events. *JAMES*, 11, 360–375,
+  [doi:10.1029/2018MS001383](https://doi.org/10.1029/2018MS001383).
+- Oouchi, K., et al. (2006), Tropical Cyclone Climatology in a Global-Warming Climate
+  as Simulated in a 20 km-Mesh Global Atmospheric Model. *JMSJ*, 84, 259–276,
+  [doi:10.2151/jmsj.84.259](https://doi.org/10.2151/jmsj.84.259).
 
-2. Moseley, C., O. Henneberg, and J. O. Haerter, 2019: A Statistical Model for Isolated Convective Precipitation Events. *J. Adv. Model. Earth Syst.*, 11, 360–375, [https://doi.org/10.1029/2018MS001383](https://doi.org/10.1029/2018MS001383).
-
-3. Oouchi, K., J. Yoshimura, H. Yoshimura, R. Mizuta, S. Kusunoki, and A. Noda, 2006: Tropical Cyclone Climatology in a Global-Warming Climate as Simulated in a 20 km-Mesh Global Atmospheric Model: Frequency and Wind Intensity Analyses. *J. Meteorol. Soc. Japan. Ser. II*, 84, 259–276, [https://doi.org/10.2151/jmsj.84.259](https://doi.org/10.2151/jmsj.84.259).
+The regression also corrected an uninitialized Fortran variable used for longitude
+wrapping. Its precise velocity-output impact and the preserved end-of-series
+lifetime behavior are documented in [the validation report](docs/VALIDATION.md).

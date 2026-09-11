@@ -1,0 +1,5 @@
+cases:
+  - Talim0903_gen_CAM6
+invert_vorticity_SH: true
+# Optional explicit analysis selection. Omit to preserve the complete input period.
+# time_range: ['2017-09-03T00:00:00', '2017-09-05T23:00:00']

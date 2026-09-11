@@ -3,23 +3,11 @@ import numpy as np
 from utils import (load_config, StepTimer, vertical_slice_bounds, vintp, latpad, uvlatpad)
 from tc_detection import TC_detect
 import os
-import math
 import argparse
-import fcntl
-import json
-import hashlib
+import multiprocessing
 import shutil
-import subprocess
 from concurrent.futures import ProcessPoolExecutor
 from windspharm.standard import VectorWind
-
-REQUIRED_IRT_BINARIES = [
-    'irt_objects_release.x',
-    'irt_advection_field_release.x',
-    'irt_tracks_release.x',
-    'irt_trackmask_release.x',
-    'irt_tracklinks_release.x',
-]
 
 def irt_params(h0):
     """
@@ -79,114 +67,9 @@ def update_irt_parameters(fortran_file, params):
     with open(fortran_file, "w") as file:
         file.writelines(updated_lines)
 
-def update_compile_command(config, compile_script_path="tracking/tracking2/compile.sh"):
-    """Rewrite COMPILE_COMMAND line in compile.sh based on runtime.compiler and runtime.compiler_flags.
-
-    Falls back silently if script missing or keys absent.
-    """
-    runtime = config.get('runtime') or {}
-    compiler = runtime.get('compiler')
-    flags = runtime.get('compiler_flags')
-    if not compiler or not flags:
-        return
-    if not os.path.isfile(compile_script_path):
-        return
-    try:
-        with open(compile_script_path, 'r') as f:
-            lines = f.readlines()
-        new_lines = []
-        replaced = False
-        for line in lines:
-            if line.startswith('COMPILE_COMMAND=') or line.startswith('COMPILE_COMMAND="'):
-                new_lines.append(f'COMPILE_COMMAND="{compiler} {" ".join(str(flags).split())}"\n')
-                replaced = True
-            else:
-                new_lines.append(line)
-        if not replaced:
-            # Prepend if not found
-            new_lines.insert(0, f'COMPILE_COMMAND="{compiler} {" ".join(str(flags).split())}"\n')
-        with open(compile_script_path, 'w') as f:
-            f.writelines(new_lines)
-    except Exception:
-        pass
-
-class FileLock:
-    def __init__(self, lock_file):
-        self.lock_file = lock_file
-        self._fh = None
-
-    def __enter__(self):
-        lock_dir = os.path.dirname(self.lock_file)
-        if lock_dir:
-            os.makedirs(lock_dir, exist_ok=True)
-        self._fh = open(self.lock_file, "w")
-        fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._fh is not None:
-            fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
-            self._fh.close()
-        return False
-
-def _grid_signature(params):
-    payload = {
-        'domainsize_x': int(params['domainsize_x']),
-        'domainsize_y': int(params['domainsize_y']),
-        'time_steps': int(params['time_steps']),
-        'lat_first': round(float(params['lat_first']), 8),
-        'lat_inc': round(float(params['lat_inc']), 10),
-        'lon_inc': round(float(params['lon_inc']), 8),
-        'lpole': bool(params['lpole']),
-    }
-    key = json.dumps(payload, sort_keys=True, separators=(',', ':'))
-    digest = hashlib.sha1(key.encode('utf-8')).hexdigest()[:12]
-    name = f"x{payload['domainsize_x']}_y{payload['domainsize_y']}_t{payload['time_steps']}_{digest}"
-    return name, key
-
-def _binaries_ready(build_dir):
-    return all(os.path.isfile(os.path.join(build_dir, exe)) for exe in REQUIRED_IRT_BINARIES)
-
-def _write_build_metadata(case_out_dir, build_dir, grid_key):
-    os.makedirs(case_out_dir, exist_ok=True)
-    with open(os.path.join(case_out_dir, '.irt_build_dir'), 'w') as file_obj:
-        file_obj.write(f"{build_dir}\n")
-    with open(os.path.join(case_out_dir, '.irt_grid_signature'), 'w') as file_obj:
-        file_obj.write(f"{grid_key}\n")
-
 def prepare_irt_build(params, config, case_out_dir):
-    runtime = (config or {}).get('runtime') or {}
-    compile_lock_file = runtime.get('compile_lock_file', '/tmp/tc_algorithm_compile.lock')
-    cache_root = runtime.get('irt_build_cache_root', 'tracking/build_cache')
-    source_dir = 'tracking/tracking2'
-    sig_name, sig_key = _grid_signature(params)
-    build_dir = os.path.join(cache_root, sig_name)
-
-    with FileLock(compile_lock_file):
-        os.makedirs(cache_root, exist_ok=True)
-        if not os.path.isdir(build_dir):
-            shutil.copytree(source_dir, build_dir)
-
-        update_irt_parameters(os.path.join(build_dir, 'irt_parameters.f90'), params)
-        update_compile_command(config or {}, os.path.join(build_dir, 'compile.sh'))
-
-        if not _binaries_ready(build_dir):
-            result = subprocess.run(
-                ['bash', 'compile.sh'],
-                cwd=build_dir,
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"IRT build compile failed in {build_dir}\n"
-                    f"stdout:\n{result.stdout}\n"
-                    f"stderr:\n{result.stderr}"
-                )
-
-    _write_build_metadata(case_out_dir, os.path.abspath(build_dir), sig_key)
-    return os.path.abspath(build_dir)
+    from tcflow.build import prepare
+    return prepare(params, config or {}, case_out_dir)
 
 def pre(ds):
     return ds.sel(lev=slice(200,None))
@@ -307,58 +190,99 @@ def _compute_features_time_batch_from_dataset(ds_batch, invert_vorticity_SH):
         out_list.append(ds_out)
     return xr.concat(out_list, dim='time')
 
-# Top-level worker wrapper for multiprocessing: reopen dataset inside worker to avoid
-# sharing netCDF4 handles across processes (prevents 'Resource temporarily unavailable').
+# Top-level worker wrapper for multiprocessing: opens a single pre-extracted NetCDF
+# (written by main process) so workers never contend on multi-file mfdataset opens.
 def _worker_time_batch(args):
-    time_indices, casename, path, file_pattern, invert_flag, var_needed = args
-    # Reopen dataset fresh in each process
-    ds = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False, data_vars='all')
+    time_indices, preproc_path, preproc_format, invert_flag = args
+    if preproc_format == 'zarr':
+        ds = xr.open_zarr(preproc_path, decode_cf=False, consolidated=False)
+    else:
+        ds = xr.open_dataset(preproc_path, decode_cf=False)
     try:
-        # Subset to required time indices and variables
         sub = ds.isel(time=time_indices)
-        available = [v for v in var_needed if v in sub.data_vars]
-        sub = sub[available]
         result = _compute_features_time_batch_from_dataset(sub, invert_flag)
     finally:
-        # Ensure file handles closed in worker
-        ds.close()
+        if hasattr(ds, 'close'):
+            ds.close()
     return result
 
-def run_parallel_detection(meta_ds, casename, path, file_pattern, invert_vorticity_SH, cpus):
-    """Batched detection with per-process dataset reopen to avoid netCDF handle contention.
+def run_parallel_detection(meta_ds, preproc_path, preproc_format, invert_vorticity_SH, cpus):
+    """Batched detection reading from a single pre-extracted NetCDF.
 
-    Each worker re-opens the dataset and processes a list of time indices. This prevents sharing
-    file handles across processes (reducing RuntimeError: Resource temporarily unavailable) at the
-    cost of additional metadata reads. Suitable when CPU parallelism outweighs open overhead.
+    Each worker opens preproc_path (written by the main process before forking) and processes
+    a slice of time indices. All worker I/O goes to one optimised file, eliminating
+    concurrent multi-file mfdataset open overhead.
     """
     time_len = meta_ds.sizes['time']
     if cpus is None or cpus < 1:
         cpus = os.cpu_count() or 1
     workers = min(cpus, time_len)
-    print(f"Parallel detection (reopen per worker): {time_len} time steps across {workers} workers")
+    print(f"Parallel detection (pre-extracted NetCDF): {time_len} time steps across {workers} workers")
     indices = list(range(time_len))
     batches = [b for b in np.array_split(indices, workers) if len(b) > 0]
-    # Variables required for feature computation
-    var_needed = ['U','V','hyam','hybm','P0','PS','Z3','T','Q','U850','V850','PSL']
     # Close the shared dataset before forking to minimize inherited open handles
     try:
         meta_ds.close()
     except Exception:
         pass
-    work_items = [(batch.tolist(), casename, path, file_pattern, invert_vorticity_SH, var_needed) for batch in batches]
+    work_items = [(batch.tolist(), preproc_path, preproc_format, invert_vorticity_SH) for batch in batches]
     ds_list = []
-    with ProcessPoolExecutor(max_workers=workers) as ex:
+    # Zarr and numerical libraries may already own threads after preprocessing.
+    # Spawn clean workers rather than inheriting locks/event loops through fork.
+    with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context('spawn')) as ex:
         for ds_part in ex.map(_worker_time_batch, work_items):
             ds_list.append(ds_part)
     combined = xr.concat(ds_list, dim='time').sortby('time')
     return combined
 
+def _fast_temp_encoding(ds):
+    encoding = {}
+    for var_name in ds.data_vars:
+        var = ds[var_name]
+        if np.issubdtype(var.dtype, np.floating):
+            encoding[var_name] = {
+                'zlib': False,
+                'complevel': 0,
+                'shuffle': False,
+                '_FillValue': None,
+            }
+        else:
+            encoding[var_name] = {
+                'zlib': False,
+                'complevel': 0,
+                'shuffle': False,
+            }
+    return encoding
+
+def _sanitize_for_netcdf_write(ds):
+    """Return a view of ds with safe attrs/encoding for NetCDF output.
+
+    Prevents netCDF backends from trying to cast NaN fill values to integer dtypes.
+    """
+    ds_out = ds.copy(deep=False)
+    encoding = {}
+    for name, var in ds_out.variables.items():
+        if name in ds_out.dims:
+            continue
+        if np.issubdtype(var.dtype, np.integer):
+            for attr_name in ('_FillValue', 'missing_value'):
+                if attr_name in var.attrs:
+                    try:
+                        attr_val = np.asarray(var.attrs[attr_name])
+                        if np.issubdtype(attr_val.dtype, np.floating) and np.isnan(attr_val).any():
+                            del var.attrs[attr_name]
+                    except Exception:
+                        pass
+            encoding[name] = {'_FillValue': None}
+    return ds_out, encoding
+
 def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=None):
     timer = StepTimer()
-    path = f'{inpath}/{casename}/atm/hist/'
+    from tcflow.inputs import open_input
+    effective_config = config or dict(case_path=inpath, file_pattern=file_pattern)
     outfile = f'{outpath}/{casename}.TC.nc'
     print(f'output filename: {outfile}')
-    print(f'open files: {path}/{casename}.{file_pattern}')
+    print('Input files: configured atmosphere source')
     runtime_cfg = (config or {}).get('runtime') or {}
     cpu_cap = None
     cpu_cap_value = runtime_cfg.get('cpus')
@@ -367,17 +291,55 @@ def main(casename, inpath, outpath, file_pattern, invert_vorticity_SH, config=No
     except (TypeError, ValueError):
         cpu_cap = None
     # Always compute IRT parameters & compile settings once (not part of parallel work)
-    meta = xr.open_mfdataset(f'{path}/{casename}.{file_pattern}', preprocess=pre, decode_cf=False, data_vars='all')
+    meta = pre(open_input(effective_config, casename, decode_cf=False))
     params = irt_params(meta); timer.mark('extract_params')
-    build_dir = prepare_irt_build(params, config or {}, outpath)
+    build_dir = effective_config.get('_build_dir') or prepare_irt_build(params, effective_config, outpath)
     print(f'Using IRT build dir: {build_dir}')
     timer.mark('prepare_irt_build')
     dlat = float(params['lat_inc']); dlon = float(params['lon_inc'])
     if dlat >= 3. or dlon >= 3.:
         raise ValueError(f"Resolution too coarse: lat_inc={dlat}°, lon_inc={dlon}° (threshold=3°).")
 
+    # Pre-extract needed variables to a single file/store so workers avoid concurrent
+    # mfdataset opens on the original source files (eliminates I/O contention).
+    var_needed = ['U', 'V', 'hyam', 'hybm', 'P0', 'PS', 'Z3', 'T', 'Q', 'U850', 'V850', 'PSL']
+    preproc_format = str(runtime_cfg.get('preproc_format', 'netcdf')).strip().lower()
+    if preproc_format not in ('netcdf', 'zarr'):
+        raise ValueError(f"Unsupported runtime.preproc_format='{preproc_format}'. Use 'netcdf' or 'zarr'.")
+    preproc_tmp_dir = runtime_cfg.get('preproc_tmp_dir') or os.environ.get('SLURM_TMPDIR') or outpath
+    os.makedirs(preproc_tmp_dir, exist_ok=True)
+    if preproc_format == 'zarr':
+        preproc_path = os.path.join(preproc_tmp_dir, f'{casename}_preproc_tmp.zarr')
+        preproc_exists = os.path.isdir(preproc_path)
+    else:
+        preproc_path = os.path.join(preproc_tmp_dir, f'{casename}_preproc_tmp.nc')
+        preproc_exists = os.path.isfile(preproc_path)
+    if preproc_exists:
+        print(f"Reusing pre-extracted {preproc_format}: {preproc_path}")
+    else:
+        print(f"Pre-extracting variables to {preproc_path} ({preproc_format}) ...")
+        available = [v for v in var_needed if v in meta.data_vars]
+        ds_pre = meta[available]
+        # Publish only a fully written store; failed writes are never reused.
+        import uuid
+        partial_path = preproc_path + '.partial-' + uuid.uuid4().hex
+        try:
+            if preproc_format == 'zarr':
+                ds_pre = ds_pre.chunk({'time': 1})
+                ds_pre.to_zarr(partial_path, mode='w', consolidated=False, zarr_format=2)
+            else:
+                ds_pre.to_netcdf(partial_path, engine='h5netcdf', encoding=_fast_temp_encoding(ds_pre))
+            os.replace(partial_path, preproc_path)
+        finally:
+            if os.path.isdir(partial_path):
+                shutil.rmtree(partial_path)
+            elif os.path.isfile(partial_path):
+                os.unlink(partial_path)
+        print('Pre-extraction done.')
+    timer.mark('preextract')
+
     print('Running time-parallel detection path (only mode)...')
-    ds = run_parallel_detection(meta, casename, path, file_pattern, invert_vorticity_SH, cpu_cap)
+    ds = run_parallel_detection(meta, preproc_path, preproc_format, invert_vorticity_SH, cpu_cap)
     meta.close()
     timer.mark('TC_detect_parallel')
     print(ds)
@@ -400,5 +362,10 @@ if __name__ == "__main__":
     os.makedirs(f"{output_path}/{case}", exist_ok=True)
     ds = main(case, case_path, f'{output_path}/{case}', file_pattern, invert_vorticity_SH, config=config)
     print("Output...")
-    ds.to_netcdf(f"{output_path}/{case}/{case}.TC.nc")
+    ds_to_write, output_encoding = _sanitize_for_netcdf_write(ds)
+    ds_to_write.to_netcdf(
+        f"{output_path}/{case}/{case}.TC.nc",
+        engine='h5netcdf',
+        encoding=output_encoding,
+    )
     ds.close()

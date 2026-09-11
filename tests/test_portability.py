@@ -2,11 +2,13 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
+import sys
 import numpy as np
 import pytest
 import xarray as xr
-from tcflow.config import resolve, write
+from tcflow.config import ROOT, resolve, write
 from tcflow.inputs import open_input, validate, file_manifest
 from tcflow.workflow import prepare, generate_job, execute
 
@@ -123,6 +125,9 @@ def test_slurm_script_array_and_quoting(dataset, tmp_path):
     assert '#SBATCH --ntasks=1' in text
     assert '#SBATCH --cpus-per-task=2' in text
     assert 'conda run --no-capture-output -n forge python' in text
+    assert 'unset PYTHONHOME' in text
+    assert 'export PYTHONNOUSERSITE=1' in text
+    assert f'export PYTHONPATH={ROOT}' in text
     assert 'SLURM_ARRAY_TASK_ID' in text
     assert json.loads((script.parent / 'runs.json').read_text())[0].endswith('run one')
 
@@ -150,6 +155,44 @@ def test_slurm_workers_cannot_exceed_allocation(dataset, monkeypatch):
     monkeypatch.setenv('SLURM_CPUS_PER_TASK', '1')
     with pytest.raises(RuntimeError, match='exceeds Slurm allocation'):
         execute(run)
+
+
+def test_launcher_ignores_inherited_python_paths(dataset, tmp_path):
+    _, cfg = dataset
+    config = tmp_path / 'launcher.yaml'
+    write(config, cfg)
+    poison = tmp_path / 'python-3.10-site-packages'
+    (poison / 'numpy').mkdir(parents=True)
+    (poison / 'numpy' / '__init__.py').write_text(
+        "raise RuntimeError('inherited PYTHONPATH was used')\n"
+    )
+    commands = tmp_path / 'commands'
+    commands.mkdir()
+    conda = commands / 'conda'
+    conda.write_text(
+        '#!/bin/bash\n'
+        'set -eu\n'
+        '[ "${PYTHONHOME+x}" != x ] || exit 91\n'
+        '[ "${PYTHONNOUSERSITE:-}" = 1 ] || exit 92\n'
+        f'[ "${{PYTHONPATH:-}}" = {shlex.quote(str(ROOT))} ] || exit 93\n'
+        'shift 5\n'
+        f'exec {shlex.quote(sys.executable)} "$@"\n'
+    )
+    conda.chmod(0o755)
+    environment = os.environ.copy()
+    environment['PYTHONPATH'] = str(poison)
+    environment['PYTHONHOME'] = str(tmp_path / 'wrong-python-home')
+    environment['PATH'] = str(commands) + os.pathsep + environment['PATH']
+    result = subprocess.run(
+        ['bash', str(ROOT / 'run.sh'), 'inspect-input', '--config', str(config)],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'inherited PYTHONPATH was used' not in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize('value', [0, -1, True, 1.5, None])

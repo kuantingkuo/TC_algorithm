@@ -126,6 +126,11 @@ def generate_job(cfg, runs):
     runtime = cfg['runtime']
     if runtime.get('python_modules'):
         lines.append(module_setup(dict(runtime, load_modules=runtime['python_modules'])))
+    # A compiler or application module may expose packages built for another
+    # Python ABI. Apply this after module loading so the selected environment
+    # sees only the repository plus its own site-packages.
+    lines += ['unset PYTHONHOME', 'export PYTHONNOUSERSITE=1',
+              'export PYTHONPATH=' + shlex.quote(str(ROOT))]
     cmd = shlex.join(python_command(runtime) + ['-m', 'tcflow', 'execute', '--batch', str(root / 'runs.json')])
     if scheduler['backend'] == 'slurm':
         lines.append('exec ' + cmd + ' --index "${SLURM_ARRAY_TASK_ID:-0}"')
@@ -196,7 +201,9 @@ def execute(run_dir):
             env.update(TC_CONFIG=str(cfg_path), TC_CPUS=str(cpus),
                        OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1',
                        NUMBA_NUM_THREADS=str(cpus if stage == 'lifetime' else 1))
-            env['PYTHONPATH'] = str(ROOT) + os.pathsep + env.get('PYTHONPATH', '')
+            env.pop('PYTHONHOME', None)
+            env['PYTHONNOUSERSITE'] = '1'
+            env['PYTHONPATH'] = str(ROOT)
             print(f'[{stage}] running; log: {run_dir / "logs" / (stage + ".log")}', flush=True)
             with (run_dir / 'logs' / (stage + '.log')).open('a') as log:
                 result = subprocess.run([sys.executable, '-m', 'tcflow.stages', stage, '--config', str(cfg_path)],

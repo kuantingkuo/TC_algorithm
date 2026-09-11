@@ -57,6 +57,13 @@ a GNU compiler cannot use an Intel-built `netcdf.mod`. `doctor` verifies an actu
 NetCDF Fortran compile/link/run and a direct-access binary roundtrip. No environment
 activation or module-load failure silently falls back to another installation.
 
+The launcher discards inherited `PYTHONPATH` and `PYTHONHOME`, and disables the user
+site directory before entering `forge`. This prevents F1/Spack Python 3.10 packages
+from being imported by the Conda Python. The generated Slurm script repeats this
+isolation after loading any configured Python modules. Python packages needed by the
+workflow must be installed in the selected Conda environment instead of being exposed
+through a site-wide `PYTHONPATH`.
+
 All Python development/test commands use Conda `forge`. The job environment is
 explicitly configurable for deployment. `env_manager: none` requires an explicit
 `python_executable`; it does not guess a system Python.

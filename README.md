@@ -34,6 +34,10 @@ bash run.sh prepare --site forerunner1 --user-config /path/to/my-f1.yaml
 # Submit the job.sh path printed by the command.
 ```
 
+The launcher isolates `forge` from `PYTHONPATH` and `PYTHONHOME` inherited from HPC
+module stacks. This is required when a site module exposes packages compiled for a
+different Python version, as can happen with the F1 Spack stack.
+
 The pipeline performs input validation, an isolated Fortran build, time-parallel
 detection, sequential object/track construction, then lifetime/SST filtering.
 Each run records its resolved configuration, input manifest, source fingerprint,

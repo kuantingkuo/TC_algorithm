@@ -18,7 +18,7 @@ def main():
     if not case:
         raise ValueError('Specify --case')
     cfg['case'] = case
-    out = Path(cfg['output_path']) / case
+    out = Path(cfg['output_path'])
     if args.stage == 'build':
         from .inputs import open_input
         from tc_algorithm import irt_params, pre

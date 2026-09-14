@@ -46,20 +46,25 @@ def package_versions():
     return versions
 
 
-def prepare(cfg, case, run_id=None, initialization=None):
+def prepare(cfg, case, run_id=None, initialization=None, unique=False):
     from copy import deepcopy
     cfg = deepcopy(cfg)
     if initialization is not None:
         cfg['initialization'] = safe_name(initialization)
     initialization = cfg.get('initialization')
     cfg['initializations'] = [initialization] if initialization else []
-    run_id = safe_name(run_id or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8])
     run_dir = Path(cfg['output_path']) / case
     if initialization:
         run_dir = run_dir / safe_name(initialization)
-    run_dir = run_dir / run_id
-    if run_dir.exists():
-        raise FileExistsError(f'Run already exists: {run_dir}; use execute --run to resume')
+    # Only add a run_id sub-directory when explicitly requested.
+    if unique:
+        run_id = safe_name(
+            run_id or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            + '-' + uuid.uuid4().hex[:8]
+        )
+        run_dir = run_dir / run_id
+    elif run_id:
+        run_dir = run_dir / safe_name(run_id)
     manifest = file_manifest(cfg, case)
     # Freeze absolute discovery patterns as well as their resolved file list.
     for kind in ('atmosphere', 'sst'):
@@ -68,22 +73,26 @@ def prepare(cfg, case, run_id=None, initialization=None):
     cfg['case'], cfg['cases'] = case, [case]
     cfg['_input_manifest'] = manifest
     cfg['_run_dir'] = str(run_dir)
-    cfg['output_path'] = str(run_dir / 'results')
-    scratch = Path(cfg['runtime'].get('scratch_root') or run_dir / 'work')
+    # Results go directly into run_dir (no nested results/ subdirectory).
+    cfg['output_path'] = str(run_dir)
+    work = run_dir / 'work'
+    scratch = Path(cfg['runtime'].get('scratch_root') or work)
     if cfg['runtime'].get('scratch_root'):
-        scratch = scratch / ('tc-' + case + '-' + run_id)
+        effective_id = run_id or case
+        scratch = scratch / ('tc-' + case + '-' + effective_id)
     cfg['_work_dir'] = str(scratch)
     cfg['runtime']['preproc_tmp_dir'] = str(scratch / 'preproc')
-    (run_dir / 'logs').mkdir(parents=True)
-    (run_dir / 'results' / case).mkdir(parents=True)
-    write(run_dir / 'resolved_config.yaml', cfg)
-    save_json(run_dir / 'input_manifest.json', manifest)
-    save_json(run_dir / 'input_report.json', report)
+    (run_dir / 'logs').mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
+    write(work / 'resolved_config.yaml', cfg)
+    save_json(work / 'input_manifest.json', manifest)
+    save_json(work / 'input_report.json', report)
     versions = package_versions()
-    save_json(run_dir / 'run_metadata.json', {
-        'config_sha256': digest(run_dir / 'resolved_config.yaml'),
+    save_json(work / 'run_metadata.json', {
+        'config_sha256': digest(work / 'resolved_config.yaml'),
         'sources': source_signature(), 'prepared_python': sys.executable,
-        'prepared_packages': versions, 'prepared_python_version': sys.version, 'created_utc': datetime.now(timezone.utc).isoformat(),
+        'prepared_packages': versions, 'prepared_python_version': sys.version,
+        'created_utc': datetime.now(timezone.utc).isoformat(),
     })
     return run_dir
 
@@ -152,9 +161,10 @@ def generate_job(cfg, runs):
 
 def execute(run_dir):
     run_dir = Path(run_dir).resolve()
-    cfg_path = run_dir / 'resolved_config.yaml'
+    work = run_dir / 'work'
+    cfg_path = work / 'resolved_config.yaml'
     cfg = load(cfg_path)
-    metadata = json.loads((run_dir / 'run_metadata.json').read_text())
+    metadata = json.loads((work / 'run_metadata.json').read_text())
     if metadata['config_sha256'] != digest(cfg_path) or metadata['sources'] != source_signature():
         raise RuntimeError('Configuration or source changed since preparation; prepare a new run')
     if metadata['prepared_packages'] != package_versions() or metadata['prepared_python_version'] != sys.version:
@@ -170,14 +180,15 @@ def execute(run_dir):
             raise RuntimeError(f'Requested {cpus} workers exceeds Slurm allocation {allocated}')
     elif cfg['scheduler']['backend'] == 'slurm':
         raise RuntimeError('This run requires a Slurm allocation; submit its generated job.sh')
-    with (run_dir / 'run.lock').open('w') as lock:
+    with (work / 'run.lock').open('w') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError(f'Run is already executing: {run_dir}') from None
         metadata.update(executed_python=sys.executable, slurm_job_id=os.environ.get('SLURM_JOB_ID'))
-        save_json(run_dir / 'run_metadata.json', metadata)
-        out = Path(cfg['output_path']) / cfg['case']
+        save_json(work / 'run_metadata.json', metadata)
+        # Results live directly inside run_dir (no nested results/ subdirectory).
+        out = Path(cfg['output_path'])
         expected = {
             'build': ['.irt_build_dir', '.irt_grid_signature'],
             'detect': [cfg['case'] + '.TC.nc'],
@@ -189,7 +200,7 @@ def execute(run_dir):
         for stage, names in expected.items():
             if metadata['sources'] != source_signature() or metadata['config_sha256'] != digest(cfg_path):
                 raise RuntimeError('Source or configuration changed during execution; prepare a new run')
-            receipt = run_dir / (stage + '.done.json')
+            receipt = work / (stage + '.done.json')
             valid = False
             if receipt.exists() and not redo:
                 recorded = json.loads(receipt.read_text())
@@ -203,7 +214,7 @@ def execute(run_dir):
             redo = True
             # Invalidate downstream receipts before rerunning an earlier stage.
             for downstream in list(expected)[list(expected).index(stage):]:
-                (run_dir / (downstream + '.done.json')).unlink(missing_ok=True)
+                (work / (downstream + '.done.json')).unlink(missing_ok=True)
             env = os.environ.copy()
             env.update(TC_CONFIG=str(cfg_path), TC_CPUS=str(cpus),
                        OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1',

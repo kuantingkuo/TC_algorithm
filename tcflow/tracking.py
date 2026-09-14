@@ -6,7 +6,7 @@ from .build import ready, shell
 
 
 def run(cfg):
-    out = Path(cfg['output_path']) / cfg['case']
+    out = Path(cfg['output_path'])
     metadata = out / '.irt_build_dir'
     if not metadata.exists():
         raise RuntimeError('Tracking requires a completed build stage')
@@ -19,7 +19,7 @@ def run(cfg):
         import uuid
         workspace.rename(workspace.with_name('tracking.failed-' + uuid.uuid4().hex[:8]))
     workspace.mkdir(parents=True)
-    (workspace / 'TC.nc').symlink_to((out / (cfg['case'] + '.TC.nc')).resolve())
+    (workspace / 'TC.nc').symlink_to(Path('..', '..', cfg['case'] + '.TC.nc'))
     shutil.copy2(binary_dir / 'irt_parameters.f90', workspace)
     # IRT's trackmask reader expects at least one track record. Represent an
     # empty detection explicitly instead of invoking that reader on an empty file.

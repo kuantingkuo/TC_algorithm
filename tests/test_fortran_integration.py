@@ -54,7 +54,8 @@ def test_periodic_velocity_and_positive_lifetime(tmp_path):
     source = tmp_path / 'atmosphere.nc'
     ds.to_netcdf(source)
     cfg.update(case='crossing', dataset={'adapter':'cesm_hybrid','rename':{},'atmosphere':str(source)})
-    out = Path(cfg['output_path']) / cfg['case']
+    out = tmp_path / 'output' / 'crossing'
+    cfg['output_path'] = str(out)
     out.mkdir(parents=True)
     mask = np.zeros((48,91,180),dtype='uint8')
     for t in range(48):
@@ -93,7 +94,7 @@ def test_concurrent_cases_netcdf_zarr_and_resume(tmp_path):
         list(pool.map(launch,runs))
     caches = []
     for name, run in zip(('first','second'),runs):
-        out = run/'results'/name
+        out = run
         assert (out/'TC.txt').read_text() == 'Total TCs = 0\nLife-Time average = 0\n'
         caches.append((out/'.irt_build_dir').read_text())
         mtime = (out/'TC.nc').stat().st_mtime_ns
@@ -101,7 +102,7 @@ def test_concurrent_cases_netcdf_zarr_and_resume(tmp_path):
         assert (out/'TC.nc').stat().st_mtime_ns == mtime
     assert caches[0] == caches[1]
     # A damaged final output reruns lifetime only; earlier results stay intact.
-    out = runs[0]/'results'/'first'
+    out = runs[0]
     detection_mtime = (out/'first.TC.nc').stat().st_mtime_ns
     (out/'TC.nc').write_bytes(b'incomplete')
     execute(runs[0])

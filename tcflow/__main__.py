@@ -108,6 +108,8 @@ def main():
         p.add_argument('--output-path')
         if name in ('prepare', 'run'):
             p.add_argument('--run-id')
+            p.add_argument('--unique', action='store_true',
+                           help='Append a timestamp+random suffix to the output directory')
             p.add_argument('--submit', action='store_true')
     p = commands.add_parser('execute', help='Run/resume a frozen prepared run')
     group = p.add_mutually_exclusive_group(required=True)
@@ -171,7 +173,7 @@ def main():
         if args.command == 'run' and cfg['scheduler']['backend'] == 'slurm' and not args.submit:
             raise ValueError('Use prepare for Slurm script generation, or run --submit')
         runs = [
-            prepare(cfg, case, args.run_id, initialization)
+            prepare(cfg, case, args.run_id, initialization, unique=args.unique)
             for case, initialization in execution_targets(cfg)
         ]
         script = generate_job(cfg, runs)

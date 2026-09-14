@@ -150,8 +150,9 @@ def test_link_search_paths_precede_libraries():
 def test_run_collision_and_input_mutation(dataset):
     ds, cfg = dataset
     run = prepare(cfg, 'sample', 'frozen')
-    with pytest.raises(FileExistsError):
-        prepare(cfg, 'sample', 'frozen')
+    # Overwriting an existing run is now allowed (no FileExistsError).
+    second = prepare(cfg, 'sample', 'frozen')
+    assert second == run
     source = Path(cfg['dataset']['atmosphere'])
     stat = source.stat()
     os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
@@ -162,7 +163,7 @@ def test_run_collision_and_input_mutation(dataset):
 def test_config_mutation_rejected(dataset):
     _, cfg = dataset
     run = prepare(cfg, 'sample')
-    with (run / 'resolved_config.yaml').open('a') as stream:
+    with (run / 'work' / 'resolved_config.yaml').open('a') as stream:
         stream.write('\n# modified\n')
     with pytest.raises(RuntimeError, match='Configuration or source changed'):
         execute(run)
@@ -353,8 +354,8 @@ def test_hindcast_initializations_have_isolated_run_directories(dataset):
     assert first == Path(cfg['output_path']) / 'sample' / 'hist.0907' / 'same-run-id'
     assert second == Path(cfg['output_path']) / 'sample' / 'hist.0908' / 'same-run-id'
     assert first != second
-    assert resolve([first / 'resolved_config.yaml'])['initializations'] == ['hist.0907']
-    assert (first / 'input_report.json').read_text().find('hist.0907') >= 0
+    assert resolve([first / 'work' / 'resolved_config.yaml'])['initializations'] == ['hist.0907']
+    assert (first / 'work' / 'input_report.json').read_text().find('hist.0907') >= 0
 
 
 def test_hindcast_uses_first_seven_sorted_files(tmp_path):
@@ -435,8 +436,9 @@ def test_empty_detection_writes_zero_tc_count(dataset, tmp_path, monkeypatch):
     from TC_lifetime import main
     ds, cfg = dataset
     cfg['case'] = 'sample'
-    out = Path(cfg['output_path']) / cfg['case']
-    out.mkdir(parents=True)
+    out = tmp_path / 'direct_out'
+    cfg['output_path'] = str(out)
+    out.mkdir(parents=True, exist_ok=True)
     build = tmp_path / 'build'
     build.mkdir()
     (build / 'irt_parameters.f90').write_text('! test fixture')

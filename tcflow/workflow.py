@@ -231,4 +231,15 @@ def execute(run_dir):
             if file_manifest(cfg, cfg['case']) != cfg['_input_manifest']:
                 raise RuntimeError('Input changed during execution; prepare a new run')
             save_json(receipt, {n: digest(out / n) for n in names})
+        # Clean up intermediate working directories; results are already
+        # copied to run_dir and these are no longer needed.
+        import shutil
+        scratch = Path(cfg.get('_work_dir') or work)
+        preproc_dir = Path(cfg['runtime'].get('preproc_tmp_dir') or (scratch / 'preproc'))
+        cleanup_dirs = [preproc_dir, scratch / 'tracking']
+        cleanup_dirs.extend(sorted(scratch.glob('tracking.failed-*')))
+        for d in cleanup_dirs:
+            if d.is_dir():
+                shutil.rmtree(d)
+                print(f'Cleaned up: {d}', flush=True)
         print(f'Completed: {out}', flush=True)

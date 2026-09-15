@@ -21,7 +21,8 @@ INTEGER              :: track_length(max_no_of_tracks)
 INTEGER              :: cell_timestep(max_no_of_tracks)
 REAL                 :: in_field(domainsize_x,domainsize_y)
 REAL                 :: out_field(domainsize_x,domainsize_y)
-INTEGER              :: readline(9), ind
+INTEGER              :: readline(9), ind, read_status
+LOGICAL              :: track_row_available
 
 CHARACTER (len=90), PARAMETER   :: input_filename1 = "irt_objects_mask.dat"
 CHARACTER (len=90), PARAMETER   :: input_filename2 = "irt_tracks_sorted.txt"
@@ -33,7 +34,12 @@ OPEN(20,FILE=trim(input_filename2),FORM='formatted', ACTION='read')
 OPEN(30,FILE=trim(output_filename),FORM='unformatted',ACTION='write',access='direct',recl=lrec)
 
 ! read the first line in sorted
-READ(20,*) readline(1:9)
+READ(20,*,IOSTAT=read_status) readline(1:9)
+IF (read_status .GT. 0) STOP 'ERROR: failed to read irt_tracks_sorted.txt'
+! An EOF read leaves readline unchanged, so track its validity separately.
+track_row_available = read_status .EQ. 0
+
+track_id(:) = -2
 
 DO it=1, time_steps
 print*, 'timestep: ',it
@@ -43,6 +49,7 @@ READ(10,rec=it) in_field(:,:)
 ! reset and create the ID1 table for all variables, 
 ! and the last readline is the first rows in the next timestep
 DO
+  IF(.NOT. track_row_available) EXIT
   IF(readline(2)>it) EXIT
   ind = readline(5)
   track_id(ind) = readline(1)
@@ -54,9 +61,10 @@ DO
   status_end(ind)       = readline(7)
   track_length(ind)     = readline(8)
   cell_timestep(ind)    = readline(9)
-  READ(20,*,END=999) readline(1:9)
+  READ(20,*,IOSTAT=read_status) readline(1:9)
+  IF (read_status .GT. 0) STOP 'ERROR: failed to read irt_tracks_sorted.txt'
+  track_row_available = read_status .EQ. 0
 ENDDO !! readline
-999 CONTINUE
 
 !! remap the data to the out field
 out_field = 0.
@@ -82,16 +90,18 @@ status_end(:)       = -2
 track_length(:)     = -2
 cell_timestep(:)    = -2
 
-ind = readline(5)
-track_id(ind) = readline(1)
-time_step_event = readline(2)
-cell_age1(ind) = readline(3)
-cell_age2(ind) = readline(4)
-cell_id(ind)   = readline(5)
-status_beginning(ind) = readline(6)
-status_end(ind)       = readline(7)
-track_length(ind)     = readline(8)
-cell_timestep(ind)    = readline(9)
+IF (track_row_available) THEN
+  ind = readline(5)
+  track_id(ind) = readline(1)
+  time_step_event = readline(2)
+  cell_age1(ind) = readline(3)
+  cell_age2(ind) = readline(4)
+  cell_id(ind)   = readline(5)
+  status_beginning(ind) = readline(6)
+  status_end(ind)       = readline(7)
+  track_length(ind)     = readline(8)
+  cell_timestep(ind)    = readline(9)
+ENDIF
 
 ENDDO  !! it
 
